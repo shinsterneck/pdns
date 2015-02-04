@@ -204,6 +204,10 @@ for a in $modules $dynmodules; do
     geoip)
       PDNS_CHECK_GEOIP
       ;;
+    geosql)
+      BOOST_REGEX
+      PDNS_WITH_MYSQL
+      ;;
     lua*)
       dnl Lua has been checked above
       ;;
@@ -327,6 +331,7 @@ AC_CONFIG_FILES([
   ext/json11/Makefile
   modules/bindbackend/Makefile
   modules/geoipbackend/Makefile
+  modules/geosqlbackend/Makefile
   modules/gmysqlbackend/Makefile
   modules/godbcbackend/Makefile
   modules/gpgsqlbackend/Makefile
