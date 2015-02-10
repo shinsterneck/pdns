@@ -1,7 +1,7 @@
 GeoSQL Backend for PowerDNS is copyright Ⓒ 2013-2015 Shin Sterneck
 
 This README is writting in MarkDown format and is currently under 
-work-in-progress. Last Update: Jan, 2015
+work-in-progress. Last Update: Mar. 2015
 
 
 Table of Contents
@@ -11,14 +11,12 @@ Table of Contents
     * [How does it work](#how-does-it-work)
     * [Overlay Concept](#overlay-concept)
     * [Special RR Records](#special-rr-records)
-2. [Basic Setup](#basic-setup)
+2. [Basic Setup](#setup)
     * [Requirements](#requirements)
     * [Preparing the GeoIP Database](#preparing-the-geoip-database)
     * [DNS Database](#dns-database)
 4. [Database Schema Requirements](#database-schema-requirements)
-5. [Feature and Change Requests](#feature-and-change-requests)
-6. [ToDo](#todo)
-7. [Other Notes](#other-notes)
+5. [Other Notes](#other-notes)
 
 
 Introduction
@@ -29,41 +27,45 @@ globally and direct your users the nearest server. This is achieved by
 adding location awareness to PowerDNS and maintaining regional DNS 'views'.
 
 One goal for the GeoSQL backend module is to keep the administration and maintenance as 
-simple as possible by centralizing the data into an SQL database and thus allow the domain/zone maintainers to use existing powerdns 
-administration tools, such as [PowerAdmin](http://www.poweradmin.org) to 
+simple as possible by centralizing the data into an SQL database and thus allowing the domain/zone 
+maintainers to use existing powerdns administration tools, such as [PowerAdmin](http://www.poweradmin.org) to 
 manage GeoSQL enabled domains without the need to maintain local mapping files on the
 powerdns server. The GeoSQL module uses "IP Address to Location" mapping data stored inside an SQL Database.
 
 GeoIP enabled DNS records are stored in the same database table and format as PowerDNS's gmysql backend,
-and basically appear exactly like any other domain.
+and basically appear exactly like any other domain except that they have a custom TLD identifier. If required, they can
+of course be also stored in a different database using the same gmysql schema structure, but this will require further configuration.
 
-Support for "EDNS0 Client-Subnet Extension" helps best identify the client region even when behind a
-CDN or other DNS servers (if supported by the provider), such as Google's Public DNS service.
+Support for "EDNS0 Client-Subnet" extension helps to best identify the client region even when behind a
+CDN or other recursive DNS servers (if supported by the provider), such as Google's Public DNS service.
+
+Here a summary of the main features:
+
+1. IP address to country mapping data is completly housed inside an SQL database (allows replication, central administration)
+2. Use existing admin tools to manage geoip enabled domains/zones (allows for admin delegation)
+3. Support for edns0-client-subnet extension to best identify client region
 
 ###How does it work?
 
-Since the domain information is stored in the same SQL table (just like any other DNS
-domain), an identifier is added to the domain name's that are GeoSQL enabled:
+1. **The administrator, has the option of grouping countries together into "regions" or to use the "country ID" directly**
 
-
-1. **The administrator, groups countries together into "regions"**
-
-    For example, if you want to create a zone specific for asian countries you 
+    **a)** For example, if you want to create a zone specific for asian countries you 
     could group all asian countries together and assign them to the region "asia".
-    Alternatively the country itself can be used directly without adding it to groups.
+    
+    **b)** Alternatively the country code itself can be used directly without adding it to groups
+    E.g: HK for Hong Kong or US for the United States of America.
 
 2. **All GeoIP enabled zones have a suffix, which is by default "geosql"**
 
-    All records/zones/domains that end with ".geosql" are handled by
+    By default all records/zones/domains that end with the custom TLD ".geosql" are handled by
     the GeoSQL backend module. This effectively creates "views" for each region.
-
 
 As such, GeoIP enabled domains or views have the following format:
 
 
-|           Format                  |
-|:---------------------------------:|
-| [domain-name].[REGION].[SUFFIX]   |
+|           Format                  | OR |           Format                    |
+|:---------------------------------:|:--:|:-----------------------------------:|
+| [domain-name].[REGION].[SUFFIX]   |    | [domain-name].[COUNTRY-ID].[SUFFIX] |
 
 
 **When PowerDNS receives a query from a client:**
@@ -74,21 +76,41 @@ As such, GeoIP enabled domains or views have the following format:
        the identified REGION and SUFFIX text to the request. This results in a new 
        "temporary" request: [requested-domain-name].[REGION].[SUFFIX]
 
-**3.** GeoSQL then retrieves the DNS records database for such records.
-
-**4.** When GeoSQL receives a response from the database, it removes the 
+**3.** When GeoSQL receives a response from the database, it removes the 
        [REGION] and [SUFFIX] from the result.
 
-**5.** Finally it returns the "real" DNS response back to PowerDNS for further 
+**4.** Finally it returns the "stripped" (without the [REGION].[SUFFIX] string appended) DNS response back to PowerDNS for further 
        processing.
 
-All you need in the PowerDNS database is a domain entry for each REGION,
-with its own records just like in any other domain.
+All you need in the PowerDNS database is a domain entry for each REGION or COUNTRY-ID,
+with its own records just like with any other domain.
 
 ---
 
 As an example, lets say your domain name is called 'example.com' and you
-created 'europe', 'asia' and 'northamerica' REGIONs:
+want to create views for the countries 'us' (U.S.A) and 'it' (Italy). The quickest way would be
+to create the zones like this:
+
+| Actual Domain Name | [COUNTRY-ID]    | [SUFFIX] |
+|:-------------------|:----------------|:---------|
+|example.com         | us              | geosql   |
+|example.com         | it              | geosql   |
+
+Your domain within PowerDNS would then look like this:
+
+| Zone Name in PowerDNS's SQL DB   | Description                    |
+|:---------------------------------|:-------------------------------|
+| example.com                      | main or default domain         |
+| example.com.us.geosql            | view for the U.S.A             |
+| example.com.it.geosql            | view for Italy                 |
+
+
+As another example,  you can create so called "regions". Regions group countries together.
+Such as 'europe' containing the individual countries in Europe.
+**For this to work, you need to associate the countries to a region inside the SQL database first,
+see below optional setup step on how to accomplish this**
+
+Following would be a 'regional' example:
 
 | Actual Domain Name | [REGION]        | [SUFFIX] |
 |:-------------------|:----------------|:---------|
@@ -112,11 +134,13 @@ location such as A, CNAME, TXT, MX records or even NS records.
 
 ---
 
-Once you have these views, you can simple maintain DNS records within them, just
+Once you have these views, you can simply maintain DNS records within them, just
 like with any other domains within PowerDNS. The only important issue to
-take care of is that the [SUFFIX] is not a TLD (Top Level Domain) such as 
-'com', 'org' or 'net' to prevent conflicts with real domains,
-however this is not enforced and if you wanted to, you could.
+take care of is that you don't use  a real world TLD (Top Level Domain) as the SUFFIX such as 
+'com', 'org' or 'net' to prevent conflicts with real domains. The default SUFFIX is 'geosql';
+
+Some administration tools, such as PowerAdmin, require you to enable non-standard TLDs, otherwise
+they won't allow you to create them in the first place. See the individual admin tools' documentation.
 
 
 ###Overlay Concept
@@ -124,17 +148,16 @@ however this is not enforced and if you wanted to, you could.
 GeoSQL is designed to be used as an overlay module, this means that GeoSQL needs to be used 
 together with the gmysql backend or another backend that stores its data within an SQL Database.
 
-This also means that you only need to create DNS records, which you want to be 
-different depending on the geographic location of the visitor.
-All other records are handled by other PowerDNS backends, such as the 
+This also means that you only need to create DNS records, which need to be different in each
+geographic location. All other records are handled by other PowerDNS backends, such as the 
 gmysql backend.
 
 If you have DNS records that are different in each geographic location and 
 other records that are same across all geographic regions, there is no need to
 create the common ones again in all GeoSQL views. Simple create them once in 
-the main domain and the differing entries in the .geosql suffixed view.
+the main domain (the real domain) and the differing entries in the .geosql suffixed view.
 This makes maintenance extremly easy and allows for any DNS resource record to
-be used with GeoSQL. It therefore eliminates the use of CNAME redirects or other
+be used with GeoSQL. It also eliminates the use of CNAME redirects or other
 types of tricks.
 
 
@@ -182,41 +205,39 @@ Domain **"example.com.europe.geosql"** specific for **european** visitors (europ
 
 
 In the above example you can see that the 'test.example.com' entry is shown even though the asian or
-european views do not include this entry. You can think of this as a type of
-inheritance. The 'test.example.com' entry is inherited by the geoip enabled domains
-and can be used there or overwritten. But what actually happens, is that after
+european views do not include this entry. What actually happens is that after
 PowerDNS has processed the GeoSQL response, it continues on with the next
 backend, until all relevant backends have been queried (this logic
-is handled by PowerDNS). Once all data is available, PowerDNS responds to the 
-client with the combined DNS response.
+is handled by PowerDNS) and the "test.example.com" comes from one of the other "Other" backends.
+Once all data is available, PowerDNS responds to the client with the combined results of all backends.
 
 ---
 
-> Note that in the event the visitor can't be mapped to a REGION, such as in the case 
-> that no region has been configured for the identified location, GeoSQL will
-> assign the actual country code it found for that IP. If you have a domain configured with the country code
-> (e.g.: example.com.us.geosql) where 'US' is the country code in the GeoIP database, it will be used instead.
-> If GeoSQL can not find a region or a country code, it will simply report that it could
-> not find any records back to PowerDNS, which in turn may process the request with other backends.
+> 1. Note that in the event the visitor can't be mapped to a REGION, such as in the case 
+> when no region has been configured, GeoSQL will assign the actual country code and try to retrieve
+> any country-code specific DNS records from the database.
+> 
+> 2. If you have country-code specific records for the domain in the records database, it will always use those
+> regardless of whether the country-code is part of a region or if region specific records exist in the
+> database. Country-Code is more specific and therefore set as a higher priority than any configured region records.
+>
+> 3. If GeoSQL can not find a region nor a country code, it will simply report that it could
+> not find any records, back to PowerDNS, which in turn may process the request with other backends.
+> Also note that
 
-Note that GeoSQL does not support slave operations, but you can overlay a 
-slave zone with GeoSQL enabled records. 
-
-You can use any type of DNS RR records supported by PowerDNS in GeoSQL.
+Note that GeoSQL does not directly support slave or zone-transfer operations but you can get the geosql zones
+via the gmysql backend by using the the full domain name like in the database "example.com.us.geosql".
 
 
 Special RR records
 ------------------
 
-The main DNS dommain will be used for SOA record queries! The GeoSQL module will
-skip any SOA inside a .geosql domain. This is because it is intended as 
-an overlay zone on top of an already existing 'main' domain. This may change in the future.
+The main DNS domain will be used for SOA record queries! The GeoSQL module will
+ignore the SOA record inside a .geosql domain and instead use the 'real' SOA record instead.
 
+###Setup
 
-Setup
-=====
-
-The following instruction can be used a a basic setup to get GeoSQL running: 
+The following instructions can be used as a basic setup to get GeoSQL running: 
 
 GeoSQL depends on two data sources:
 
@@ -224,8 +245,7 @@ GeoSQL depends on two data sources:
 2. The PowerDNS DNS Records Database, containing your DNS records.
 
 
-Requirements
-------------
+## Requirements
 
 GeoSQL currently requires the following libraries:
 
@@ -233,82 +253,182 @@ GeoSQL currently requires the following libraries:
 + Boost ( including Regex Library)
 
 
-###Preparing the GeoIP Database
+##Preparing the GeoIP Database
 
 
 1. To prepare the database, we will first need to download the GeoIP Data.
 There are several free and commercial ready to download collections available,
-however for this tutorial we will be using the MaxMind GeoLite Database in CSV
+however for this tutorial we will be using the MaxMind GeoLite Legacy Database in CSV
 format, which is freely available on their 
 [homepage](http://dev.maxmind.com/geoip/legacy/geolite) and is regularly 
-updated.
+updated. 
+> It's also possible to use the new GeoLite2 database but for the sake of simplicity
+> we will use the legacy database as the import method can also be applied to other database
+> sources such as ip2location's lite database.
 
-2. Once you have downloaded the GeoIP data, we'll have to convert or import 
-it into our MySQL server. Vincent de Lau has written up a nice 
-[how-to](http://vincent.delau.net/php/geoip.html) on how to accomplish this.
-We will use this as reference with a slight addition to handle our 'region' grouping:
+2. Once you have downloaded the GeoIP data, we'll have to import 
+it into our MySQL server. 
 
+The below sql statements will take care of this procedure, it presumes that the MaxMind CSV file
+"GeoIPCountryWhois.csv" is located at '/tmp/GeoIPCountryWhois.csv'.
+Change it to wherever you have downloaded the file to.
 
-Create Temporary import table:
 
 ```
-CREATE TABLE csv (
-        start_ip CHAR(15) NOT NULL,
-        end_ip CHAR(15) NOT NULL,
-        start INT UNSIGNED NOT NULL,
-        end INT UNSIGNED NOT NULL,
-        cc CHAR(2) NOT NULL,
-        cn VARCHAR(50) NOT NULL
+/* Create database to store IP to Geo Mapping information */
+
+/*!40000 DROP DATABASE IF EXISTS `geoip`*/;
+CREATE DATABASE /*!32312 IF NOT EXISTS*/ `geoip` /*!40100 DEFAULT CHARACTER SET utf8 COLLATE utf8_unicode_ci */;
+USE geoip;
+
+DROP TABLE IF EXISTS ip;
+DROP TABLE IF EXISTS cc;
+DROP TABLE IF EXISTS regions;
+DROP TABLE IF EXISTS csv;
+
+/* Table to hold the region details */
+CREATE TABLE regions (
+    regionid INT UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT,
+    regionname VARCHAR(20) NOT NULL UNIQUE,
+    comment VARCHAR(50)
 );
-```
 
-Create "CountryCode" table and "IP Address" table as well as our view to combine the two:
-
-```
+/* Table to hold the Country Codes and reference to the region */
 CREATE TABLE cc (
-  ci TINYINT UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT,
-  cc CHAR(2) NOT NULL,
-  cn VARCHAR(50) NOT NULL,
-  region VARCHAR(50)
+    ci INT UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT,
+    cc CHAR(2) NOT NULL,
+    cn VARCHAR(50) NOT NULL,
+    regionid INT UNSIGNED,
+    FOREIGN KEY (regionid) REFERENCES regions(regionid)
 );
 
+/* Table to hold the IP Address - Geo Mapping Information */
 CREATE TABLE ip (
-  start INT UNSIGNED NOT NULL,
-  end INT UNSIGNED NOT NULL,
-  ci TINYINT UNSIGNED NOT NULL
+    ip_poly POLYGON NOT NULL,
+    ci INT UNSIGNED NOT NULL,
+    SPATIAL INDEX (ip_poly)
+) engine=myisam;
+
+/* Create a view for easy lookup */
+create view lookup as
+    select ip_poly,cc,regionname from ip 
+    left join cc on ip.ci = cc.ci 
+    left join regions on cc.regionid=regions.regionid;
+
+/* Temporary table used for importing the CSV file */
+CREATE TEMPORARY TABLE csv (
+    id INT UNSIGNED NOT NULL auto_increment,
+    ip_poly POLYGON NOT NULL,
+    cc CHAR(2) NOT NULL,
+    cn VARCHAR(50) NOT NULL,
+    PRIMARY KEY (id)
 );
 
-CREATE VIEW maxmind AS SELECT
-ip.start AS 'start',
-   ip.end AS 'end',
-   cc.cc AS 'cc',
-   cc.region AS 'region' 
-   FROM
-      ip JOIN cc ON ip.ci = cc.ci;
+/* Importing of CSV file and converting IP Address into a GeoSpacial format for a more efficient search */
+LOAD DATA LOCAL INFILE "/tmp/GeoIPCountryWhois.csv"
+    INTO TABLE csv FIELDS TERMINATED BY "," ENCLOSED BY "\"" LINES TERMINATED BY "\n"
+     (@ip_start_string, @ip_end_string, @ip_start, @ip_end, @cc, @country_string)
+    SET
+     id := NULL,
+     ip_poly := GEOMFROMWKB(POLYGON(LINESTRING(
+      POINT(@ip_start, -1), POINT(@ip_end, -1), POINT(@ip_end, 1), POINT(@ip_start, 1), POINT(@ip_start, -1)))),
+     cc := @cc,
+     cn := @country_string;
+
+/* Filling tables with imported data, while performing some optimizations */
+INSERT INTO cc SELECT DISTINCT NULL,cc,cn,NULL FROM csv ORDER BY cc ASC;
+INSERT INTO ip SELECT ip_poly,ci FROM csv NATURAL JOIN cc;
 
 ```
 
-###DNS Database
+## Optional: Creating regions to group countries together
 
-GeoSQL by default uses the standard powerdns gmysql database schema as 
-documented in the gmysql module documentation online.
-
-
-###PowerDNS Configuration Requirements
-
-Todo: Add PowerDNS Configuration Requirements
+This step is optional and allows you to group multiple countries into regions.
+You can then create zones/views for the entire region instead of for each individual country.
+Keep in mind that country specific zones are handled with higher priority and used instead if found,
+which means that if for example you have a region "europe", which countains "de" (Germany) and records for 
+"*.europe.geosql" and "*.de.geosql" configured, the latter will be used and the former disregarded.
 
 
-Feature and Change Requests
----------------------------
+Example on how to creating regions:
 
-Please send change and feature request to "geosql at sterneck dot asia".
+```
+/* create 'europe' example region */
+insert into regions values (null, 'europe','test region for europe');
+
+/* create 'asia' example region */
+insert into regions values (null, 'asia','test region for asia');
+
+```
+
+Assigning countries to the region:
+
+```
+/* Assigning Germany (de) to the 'europe' example region */
+update cc set regionid=(select regionid from regions where regionname='europe') where cc='de';
+
+/* Assigning Asia Pacific countries to the 'asia' example region */
+update cc set regionid=(select regionid from regions where regionname='asia') where 
+	cc in ('AP','AU','CN','HK','ID','IN','JP','KH','KP','KR','MY','NZ','PH','SG','TH','TW','VN');
+
+```
+
+##PowerDNS Configuration Requirements
+
+Follwoing is an example /etc/pdns.conf configuration
 
 
-TODO
-----
+```
+# disable caching because responses will be different depending on the source ip
+query-cache-ttl=0
+cache-ttl=0
 
-Todo: Add PowerDNS Configuration Requirements
+# load geosql before gmysql
+launch=geosql,gmysql
+
+## Configure gmysql backend ##
+gmysql-host=127.0.0.1
+gmysql-dbname=powerdns
+gmysql-user=powerdns
+gmysql-password=password
+
+## configure geosql backend ##
+
+# specify GeoIP database details to retrieve country and region information
+geosql-geo-backend=mysql
+geosql-geo-host=127.0.0.1
+geosql-geo-database=geoip
+geosql-geo-username=root
+geosql-geo-password=password
+
+# specify powerdns database details for geosql to retrieve geosql suffixed records
+geosql-pdns-backend=mysql
+geosql-pdns-host=127.0.0.1
+geosql-pdns-database=powerdns
+geosql-pdns-username=powerdns
+geosql-pdns-password=password
+
+```
+
+### License
+
+GeoSQL backend for PowerDNS to support geo-location based DNS responses
+
+Copyright (C) Shin Sterneck 2013-2015 (email: shin at sterneck dot asia)
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 
 Other Notes
@@ -318,6 +438,6 @@ Please drop me an email or leave some feedback if this backend is useful to
 you.
 
 
-Thank you!
+Have fun!
 
 Shin Sterneck (shin st sterneck dot asia)

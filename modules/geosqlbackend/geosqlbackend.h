@@ -52,13 +52,13 @@ public:
 private:    
     struct sqlregion {
         string regionname;
-        //string countrycode;
+        string countrycode;
     };
     
-    bool getRegionForIP(string &ip, string &returned_countryID);
-    bool getGeoDnsRecords(const QType &type, const string &qdomain, string &dnsid);
+    bool getRegionForIP(string &ip, sqlregion &returned_countryID);
+    bool getGeoDnsRecords(const QType &type, const string &qdomain, const sqlregion &region);
     bool getSqlData(OpenDBX::Conn *&conn, string &sqlStatement, std::vector<boost::any> &sqlResponseData, int sqlResponseType);
-    void logEntry(Logger::Urgency urgency, string message);
+    inline void logEntry(Logger::Urgency urgency, string message);
     
     OpenDBX::Conn *geoip_db;
     OpenDBX::Conn *pdns_db;
