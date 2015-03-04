@@ -49,8 +49,7 @@ bool GeoSqlBackend::list(const string &target, int id, bool include_disabled) {
 // Function for looking up the DNS records and storing the result into a vector.
 void GeoSqlBackend::lookup(const QType &type, const string &qdomain, DNSPacket *p, int zoneId) {
     const string qdomainLower = boost::to_lower_copy<string>(qdomain);
-    const boost::regex regexFilter = boost::regex(getArg("regex-filter"));
-    const boost::regex regexRfc1918 = boost::regex("(^127\\.0\\.0\\.1)|(^10\\.)|(^172\\.1[6-9]\\.)|(^172\\.2[0-9]\\.)|(^172\\.3[0-1]\\.)|(^192\\.168\\.)");
+    const boost::regex regexFilter = boost::regex(getArg("regex-filter"));    
     string remoteIp;
     
     if (p->hasEDNSSubnet()) {
@@ -59,11 +58,6 @@ void GeoSqlBackend::lookup(const QType &type, const string &qdomain, DNSPacket *
     } else {
         remoteIp = p->getRemote();
     }
-
-    if (boost::regex_search(remoteIp, regexRfc1918)) {
-        logEntry(Logger::Debug, "rfc1918 match, skipping backend");
-        return;
-    } 
 
     if (boost::equals(regexFilter, ".*") ||  boost::regex_search(qdomainLower, regexFilter)) {
         logEntry(Logger::Notice, "Handling Query Request: '" + string(qdomainLower) + ":" + string(type.getName()) + "'");
