@@ -217,9 +217,9 @@ bool GeoSqlBackend::getSqlData(OpenDBX::Conn *&conn, string &sqlStatement, std::
                                         dataAvailable = true;
                                         sqlResponseData.push_back(row);
                                     }
-
+                                    break;
                                 }
-                                break;
+                                
                                 case SQL_RESP_TYPE_REGION:
                                 {
                                     sqlregion row;
@@ -237,10 +237,9 @@ bool GeoSqlBackend::getSqlData(OpenDBX::Conn *&conn, string &sqlStatement, std::
                                         dataAvailable = true;
                                     }
                                     if (dataAvailable) sqlResponseData.push_back(row);
-                                }
                                 break;
+                                }
                             }
-
                         }
                 }
                 continue;
