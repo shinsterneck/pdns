@@ -41,7 +41,7 @@ CDN or other recursive DNS servers (if supported by the provider), such as Googl
 
 Here a summary of the main features:
 
-1. IP address to country mapping data is completly housed inside an SQL database (allows replication, central administration)
+1. IP address to country mapping data is completly housed inside an SQL database (allows replication, central administration, and customization of the GeoIP Data)
 2. Use existing admin tools to manage geoip enabled domains/zones (allows for admin delegation)
 3. Support for edns0-client-subnet extension to best identify client region
 
@@ -223,7 +223,6 @@ Once all data is available, PowerDNS responds to the client with the combined re
 >
 > 3. If GeoSQL can not find a region nor a country code, it will simply report that it could
 > not find any records, back to PowerDNS, which in turn may process the request with other backends.
-> Also note that
 
 Note that GeoSQL does not directly support slave or zone-transfer operations but you can get the geosql zones
 via the gmysql backend by using the the full domain name like in the database "example.com.us.geosql".
