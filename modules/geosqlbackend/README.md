@@ -338,6 +338,8 @@ LOAD DATA LOCAL INFILE "/tmp/GeoIPCountryWhois.csv"
 INSERT INTO cc SELECT DISTINCT NULL,cc,cn,NULL FROM csv ORDER BY cc ASC;
 INSERT INTO ip SELECT ip_poly,ci FROM csv NATURAL JOIN cc;
 
+CREATE INDEX records_name ON records (name);
+
 ```
 
 ## Optional: Creating regions to group countries together
