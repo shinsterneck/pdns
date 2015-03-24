@@ -52,6 +52,7 @@ void GeoSqlBackend::lookup(const QType &type, const string &qdomain, DNSPacket *
     const boost::regex regexFilter = boost::regex(getArg("regex-filter"));    
     string remoteIp;
     
+	//check for ECS data and use it if found
     if (p->hasEDNSSubnet()) {
         logEntry(Logger::Debug, "EDNS0 Client-Subnet Field Found!");
         remoteIp = p->getRealRemote().toStringNoMask();
@@ -59,6 +60,7 @@ void GeoSqlBackend::lookup(const QType &type, const string &qdomain, DNSPacket *
         remoteIp = p->getRemote();
     }
 
+	//check if regex filter is configured and matches the qdomain, if not skip this backend
     if (boost::equals(regexFilter, ".*") ||  boost::regex_search(qdomainLower, regexFilter)) {
         logEntry(Logger::Notice, "Handling Query Request: '" + string(qdomainLower) + ":" + string(type.getName()) + "'");
         sqlregion region;
@@ -280,7 +282,7 @@ public:
     void declareArguments(const string &suffix) {
         // GeoSQL configuration part
         declare(suffix, "regex-filter", "Regular expression filter to match against queried domain", ".*");
-        declare(suffix, "domain-suffix", "Set the domain suffix for GeoSQL zones without any 'dot' character", "geosql");
+        declare(suffix, "domain-suffix", "Set the domain suffix for GeoSQL zones without prefixed 'dot' character", "geosql");
 
         // GeoDB DB Connection part
         declare(suffix, "geo-backend", "The backend is the name of the driver the OpenDBX library should use to connect to a database. The name must be one of the implemented and available drivers on the system and is case sensitive. All driver names are in lower case, e.g. mysql", "mysql");
