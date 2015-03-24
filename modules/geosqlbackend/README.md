@@ -41,9 +41,10 @@ CDN or other recursive DNS servers (if supported by the provider), such as Googl
 
 Here a summary of the main features:
 
-1. IP address to country mapping data is completly housed inside an SQL database (allows replication, central administration, and customization of the GeoIP Data)
-2. Use existing admin tools to manage geoip enabled domains/zones (allows for admin delegation)
-3. Support for edns0-client-subnet extension to best identify client region
+1. Create DNS records that differ in reach country/region or create DNS records visible in only selected countries.
+2. IP address to country mapping data is completly housed inside an SQL database (allows replication, central administration, and customization of the GeoIP Data)
+3. Use existing admin tools to manage geoip enabled domains/zones (allows for admin delegation)
+4. Support for edns0-client-subnet extension to best identify client region
 
 ###How does it work?
 
