@@ -453,7 +453,7 @@ Client body for PATCH:
       ]
     }
 
-Having `type` inside an RR differ from `type` at the top level is an error.
+Having `type` inside an RR differ from `type` at the RRset level is an error.
 
 * `name`
   Full name of the RRset to modify. (Example: `foo.example.org`)
@@ -521,7 +521,17 @@ configuration.
 
 Not supported for recursors.
 
-Clients MUST NOT send a body.
+**Note**: Added in 3.4.2
+
+
+URL: /servers/:server\_id/zones/:zone\_id/export
+-------------------------------------------------------
+
+Allowed methods: `GET`
+
+Returns the zone in AXFR format.
+
+Not supported for recursors.
 
 
 URL: /servers/:server\_id/zones/:zone\_id/check
