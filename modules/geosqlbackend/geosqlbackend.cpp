@@ -36,8 +36,10 @@ GeoSqlBackend::GeoSqlBackend(const string &suffix) {
         pdns_db = new OpenDBX::Conn(getArg("pdns-backend"), getArg("pdns-host"), "");
         pdns_db->bind(getArg("pdns-database"), getArg("pdns-username"), getArg("pdns-password"), ODBX_BIND_SIMPLE);
         logEntry(Logger::Notice, "Connection successful for zone data. Connected to database '" + getArg("pdns-database") + "' on '" + getArg("pdns-host") + "'");
-    } catch (OpenDBX::Exception &e) {        
-        throw PDNSException("Connection to database server could not be established! ODBX Error code: " + e.getCode());
+    } catch (OpenDBX::Exception &e) {
+        ostringstream oss;
+        oss << e.getCode();        
+        throw PDNSException("Connection to database server could not be established! ODBX Error code: " + oss.str());
     }
 }
 
