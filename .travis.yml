@@ -76,7 +76,7 @@ before_script:
 script:
  - ./bootstrap
  - ./configure
-     --with-dynmodules='bind geo geoip gmysql gpgsql gsqlite3 mydns tinydns remote random opendbx ldap lmdb lua geosql'
+     --with-dynmodules='bind geo geoip geosql gmysql gpgsql gsqlite3 mydns tinydns remote random opendbx ldap lmdb lua'
      --with-modules=''
      --with-sqlite3
      --enable-botan1.10
