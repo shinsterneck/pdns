@@ -36,7 +36,7 @@ GeoIP enabled DNS records are stored in the same database table and format as Po
 and basically appear exactly like any other domain except that they have a custom TLD identifier. If required, they can
 of course be also stored in a different database using the same gmysql schema structure, but this will require further configuration.
 
-Support for "EDNS0 Client-Subnet" extension (ECN) helps to best identify the client region even when behind a
+Support for "EDNS0 Client-Subnet" extension (ECS) helps to best identify the client region even when behind a
 CDN or other recursive DNS servers (if supported by the provider), such as Google's Public DNS service.
 
 Here a summary of the main features:
@@ -351,7 +351,7 @@ which means that if for example you have a region "europe", which countains "de"
 "*.europe.geosql" and "*.de.geosql" configured, the latter will be used and the former disregarded.
 
 
-Example on how to creating regions:
+Example on how to create regions:
 
 ```
 /* create 'europe' example region */
