@@ -248,21 +248,20 @@ bool GeoSqlBackend::getSqlData(OpenDBX::Conn *&conn, string &sqlStatement, std::
                                 case SQL_RESP_TYPE_DNSRR:
                                 {
                                     DNSResourceRecord row;
-                                    std::map<string,string> column_map;
-                                    const vector<string> dbcolumns = {"name" , "type", "content", "ttl", "prio"};
-
-                                    for ( unsigned int i = 0 ; i < dbcolumns.size() ; i++ ) {
-                                        if ( result.fieldLength(result.columnPos(dbcolumns[i])) > 0 ) {
-                                            column_map[dbcolumns[i]] = ostringstream(result.fieldValue(result.columnPos(dbcolumns[i]))).str();
-                                        }
-                                    }
-                                    row.qname = DNSName(column_map["name"]);
-                                    row.qtype = column_map["type"];                                    
-                                    row.ttl = stoul(column_map["ttl"], nullptr, 10);
+                                                                          
+                                    int col_name = result.columnPos("name");
+                                    int col_type = result.columnPos("type");
+                                    int col_ttl = result.columnPos("ttl");
+                                    int col_prio = result.columnPos("prio");
+                                    int col_content = result.columnPos("content");
+                                    
+                                    row.qname = DNSName(string(result.fieldValue(col_name)));
+                                    row.qtype = string(result.fieldValue(col_type));
+                                    row.ttl = stoul(string(result.fieldValue(col_ttl)), nullptr, 10);
                                     if (row.qtype == QType::MX || row.qtype == QType::SRV) {
-                                        row.content = (column_map["prio"] + " " + column_map["content"]);
+                                        row.content = string(result.fieldValue(col_prio)) + " " + string(result.fieldValue(col_content));
                                     } else {
-                                        row.content = column_map["content"];
+                                        row.content = string(result.fieldValue(col_content));
                                     }
                                     if (!row.qname.empty()) {
                                         dataAvailable = true;
@@ -279,12 +278,12 @@ bool GeoSqlBackend::getSqlData(OpenDBX::Conn *&conn, string &sqlStatement, std::
                                     int col_region = result.columnPos("regionname");
                                     int col_cc = result.columnPos("cc");
                                     if (result.fieldLength(col_region > 0)) {
-                                        row.regionname = ostringstream(result.fieldValue(col_region)).str();
+                                        row.regionname = string(result.fieldValue(col_region));
                                         dataAvailable = true;
                                     }
 
                                     if (result.fieldLength(col_cc > 0)) {
-                                        row.countrycode = ostringstream(result.fieldValue(col_cc)).str();
+                                        row.countrycode = string(result.fieldValue(col_cc));
                                         dataAvailable = true;
                                     }
                                     if (dataAvailable) sqlResponseData.push_back(row);
