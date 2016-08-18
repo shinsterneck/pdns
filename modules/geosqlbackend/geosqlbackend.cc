@@ -66,13 +66,12 @@ bool GeoSqlBackend::list(const DNSName &target, int domain_id, bool include_disa
  * @param zoneId The Zone ID
  */
 void GeoSqlBackend::lookup(const QType &qtype, const DNSName &qdomain, DNSPacket *pkt_p, int zoneId) {
-    const string qdomainLower = toLower(qdomain.toStringNoDot());
     const boost::regex regexFilter = boost::regex(getArg("regex-filter"));
     ComboAddress remoteIp;
     
 	//check if regex filter is configured and matches the qdomain, if not skip this backend
-    if (boost::equals(regexFilter, ".*") ||  boost::regex_search(qdomainLower, regexFilter)) {
-        logEntry(Logger::Debug, "Handling Query Request: '" + string(qdomainLower) + ":" + string(qtype.getName()) + "'");
+    if (boost::equals(regexFilter, ".*") ||  boost::regex_search(qdomain.toStringNoDot(), regexFilter)) {
+        logEntry(Logger::Debug, "Handling Query Request: '" + string(qdomain.toStringNoDot()) + ":" + string(qtype.getName()) + "'");
 
         //check for ECS data and use it if found
         if (pkt_p->hasEDNSSubnet()) {
@@ -85,12 +84,12 @@ void GeoSqlBackend::lookup(const QType &qtype, const DNSName &qdomain, DNSPacket
         // get region and dns records for that region
         sqlregion region;
         if (getRegionForIP(remoteIp, region)) {
-            getGeoDnsRecords(qtype, qdomainLower, region);
+            getGeoDnsRecords(qtype, qdomain.toStringNoDot(), region);
         } else {
             return;
         }
     } else {
-        logEntry(Logger::Debug, "Skipping Query request: '" + qdomainLower + "' not matching regex-filter.");
+        logEntry(Logger::Debug, "Skipping Query request: '" + qdomain.toStringNoDot() + "' not matching regex-filter.");
     }
 }
 
