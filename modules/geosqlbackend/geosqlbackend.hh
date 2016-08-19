@@ -25,7 +25,8 @@
 
 #define SQL_RESP_TYPE_REGION        0
 #define SQL_RESP_TYPE_DNSRR         1
-#define SQL_REST_TYPE_TEST          2
+#define SQL_RESP_TYPE_GEOSQLED      2
+
 
 #include <opendbx/api>
 #include <pdns/utility.hh>
@@ -63,6 +64,8 @@ private:
     OpenDBX::Conn *geoip_db;
     OpenDBX::Conn *pdns_db;
     vector<DNSResourceRecord> *rrs;
+    
+    std::set<string> *geosqlRrs;
 };
 
 #endif	/* GEOSQLBACKEND_H */

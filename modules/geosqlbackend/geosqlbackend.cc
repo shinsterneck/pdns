@@ -30,6 +30,8 @@ GeoSqlBackend::GeoSqlBackend(const string &suffix) {
     // load configuration
     setArgPrefix("geosql" + suffix);
     rrs = new vector<DNSResourceRecord>();
+    geosqlRrs = new set<string>();
+
     try {
         // GeoIP Database Connectivity
         geoip_db = new OpenDBX::Conn(getArg("geo-backend"), getArg("geo-host"), "");
@@ -40,6 +42,36 @@ GeoSqlBackend::GeoSqlBackend(const string &suffix) {
         pdns_db = new OpenDBX::Conn(getArg("pdns-backend"), getArg("pdns-host"), "");
         pdns_db->bind(getArg("pdns-database"), getArg("pdns-username"), getArg("pdns-password"), ODBX_BIND_SIMPLE);
         logEntry(Logger::Notice, "Connection successful for zone data. Connected to database '" + getArg("pdns-database") + "' on '" + getArg("pdns-host") + "'");
+
+        // Preload geosql enabled records
+        try {
+            std::vector<boost::any> sqlResponseData;
+            string sqlstmt = getArg("sql-pdns-lookup-geosqlenabled");
+            bool result = getSqlData(pdns_db, sqlstmt, sqlResponseData, SQL_RESP_TYPE_GEOSQLED);
+
+            if (result) {
+                string record;
+
+                L << Logger::Alert << "Found " << sqlResponseData.size() << " geosql records!" << endl;
+
+                boost::regex re("^(.*)\\..*\\." + getArg("domain-suffix") + "$");
+                for (unsigned int i = 0; i < sqlResponseData.size(); i++) {
+                    record = boost::any_cast<string>(sqlResponseData.at(i));
+
+                    // remove geosql country/region and suffix and store in simple cache vector
+                    boost::smatch matches;
+                    if (boost::regex_match(record, matches, re)){
+                        geosqlRrs->insert(string(matches[1]));
+                    }
+                }
+            }
+
+            L << Logger::Debug << "Discovered geosql enabled records: " << geosqlRrs->size() << endl;
+
+        } catch (std::exception &e) {
+            logEntry(Logger::Alert, "Error during pre-processing " + string(e.what()));
+        }
+
     } catch (OpenDBX::Exception &e) {
         ostringstream oss;
         oss << e.getCode();
@@ -54,7 +86,7 @@ GeoSqlBackend::GeoSqlBackend(const string &suffix) {
  * @param include_disabled Specified whether disabled domains should be included in the response
  * @return false (no support for zone transfers in this backend, use main zone for this purpose for now)
  */
-bool GeoSqlBackend::list(const DNSName &target, int domain_id, bool include_disabled) {    
+bool GeoSqlBackend::list(const DNSName &target, int domain_id, bool include_disabled) {
     return false;
 }
 
@@ -66,11 +98,10 @@ bool GeoSqlBackend::list(const DNSName &target, int domain_id, bool include_disa
  * @param zoneId The Zone ID
  */
 void GeoSqlBackend::lookup(const QType &qtype, const DNSName &qdomain, DNSPacket *pkt_p, int zoneId) {
-    const boost::regex regexFilter = boost::regex(getArg("regex-filter"));
     ComboAddress remoteIp;
-    
-	//check if regex filter is configured and matches the qdomain, if not skip this backend
-    if (boost::equals(regexFilter, ".*") ||  boost::regex_search(qdomain.toStringNoDot(), regexFilter)) {
+
+	//check if qdomain is a registered geosql enabled record, if not skip the whole backend
+    if (geosqlRrs->find(qdomain.toStringNoDot()) != geosqlRrs->end()) {
         logEntry(Logger::Debug, "Handling Query Request: '" + string(qdomain.toStringNoDot()) + ":" + string(qtype.getName()) + "'");
 
         //check for ECS data and use it if found
@@ -89,7 +120,7 @@ void GeoSqlBackend::lookup(const QType &qtype, const DNSName &qdomain, DNSPacket
             return;
         }
     } else {
-        logEntry(Logger::Debug, "Skipping Query request: '" + qdomain.toStringNoDot() + "' not matching regex-filter.");
+        logEntry(Logger::Debug, "Skipping Query request: '" + qdomain.toStringNoDot() + "' not a geosql enabled record");
     }
 }
 
@@ -127,7 +158,7 @@ bool GeoSqlBackend::getSOA(const DNSName &name, SOAData &soadata, DNSPacket *p) 
  */
 bool GeoSqlBackend::getRegionForIP(ComboAddress &ip, sqlregion &returned_region) {
     bool foundCountry = false;
-    string sqlstmt = getArg("sql-geo-lookup-region");    
+    string sqlstmt = getArg("sql-geo-lookup-region");
     boost::replace_all(sqlstmt, "{{S-IP}}", ip.toString());
     std::vector<boost::any> sqlResponseData;
     try {
@@ -146,10 +177,10 @@ bool GeoSqlBackend::getRegionForIP(ComboAddress &ip, sqlregion &returned_region)
     if (foundCountry) {
         string logentry = "Identified as: '" + returned_region.countrycode;
         if (!returned_region.regionname.empty()) {
-            logentry.append("|" + returned_region.regionname + "'");        
+            logentry.append("|" + returned_region.regionname + "'");
         } else {
             logentry.append("'");
-        }    
+        }
         logEntry(Logger::Debug, logentry);
     } else {
         logEntry(Logger::Debug, "No Region Found");
@@ -173,7 +204,7 @@ bool GeoSqlBackend::getGeoDnsRecords(const QType &type, const string &qdomain, c
     } else {
         sqlstmt = getArg("sql-pdns-lookuptype");
     }
-    
+
     boost::replace_all(sqlstmt, "{{DOMAIN-SUFFIX}}", getArg("domain-suffix"));
     boost::replace_all(sqlstmt, "{{QDOMAIN}}", qdomain);
     boost::replace_all(sqlstmt, "{{QTYPE}}", type.getName());
@@ -185,7 +216,7 @@ bool GeoSqlBackend::getGeoDnsRecords(const QType &type, const string &qdomain, c
 
     if (!region.countrycode.empty()) {
         boost::replace_all(sqlstmt_region, "{{REGION}}", region.countrycode);
-        if (getSqlData(pdns_db, sqlstmt_region, sqlResponseData, SQL_RESP_TYPE_DNSRR )) {    
+        if (getSqlData(pdns_db, sqlstmt_region, sqlResponseData, SQL_RESP_TYPE_DNSRR )) {
             foundRecords = true;
         } else if (!region.regionname.empty()) {
             sqlResponseData.clear();
@@ -222,7 +253,7 @@ bool GeoSqlBackend::getGeoDnsRecords(const QType &type, const string &qdomain, c
  * @return bool sucess of failure indicator
  */
 bool GeoSqlBackend::getSqlData(OpenDBX::Conn *&conn, string &sqlStatement, std::vector<boost::any> &sqlResponseData, int sqlResponseType) {
-    
+
     bool dataAvailable = false;
     sqlResponseData.clear();
     logEntry(Logger::Debug, "Executing SQL Statement: " + sqlStatement);
@@ -247,13 +278,13 @@ bool GeoSqlBackend::getSqlData(OpenDBX::Conn *&conn, string &sqlStatement, std::
                                 case SQL_RESP_TYPE_DNSRR:
                                 {
                                     DNSResourceRecord row;
-                                                                          
+
                                     int col_name = result.columnPos("name");
                                     int col_type = result.columnPos("type");
                                     int col_ttl = result.columnPos("ttl");
                                     int col_prio = result.columnPos("prio");
                                     int col_content = result.columnPos("content");
-                                    
+
                                     row.qname = DNSName(string(result.fieldValue(col_name)));
                                     row.qtype = string(result.fieldValue(col_type));
                                     row.ttl = stoul(string(result.fieldValue(col_ttl)), nullptr, 10);
@@ -268,7 +299,7 @@ bool GeoSqlBackend::getSqlData(OpenDBX::Conn *&conn, string &sqlStatement, std::
                                     }
                                     break;
                                 }
-                                
+
                                 case SQL_RESP_TYPE_REGION:
                                 {
                                     sqlregion row;
@@ -288,6 +319,20 @@ bool GeoSqlBackend::getSqlData(OpenDBX::Conn *&conn, string &sqlStatement, std::
                                     if (dataAvailable) sqlResponseData.push_back(row);
                                 break;
                                 }
+
+                                case SQL_RESP_TYPE_GEOSQLED:
+                                {
+                                    string namerr = "";
+
+                                    namerr = string(result.fieldValue(result.columnPos("name")));
+
+                                    if (namerr != "") {
+                                        dataAvailable = true;
+                                        sqlResponseData.push_back(namerr);
+                                    }
+                                    break;
+                                }
+
                             }
                         }
                 }
@@ -322,9 +367,11 @@ GeoSqlBackend::~GeoSqlBackend() {
     delete geoip_db;
     delete pdns_db;
     delete rrs;
+    delete geosqlRrs;
     geoip_db = NULL;
     pdns_db = NULL;
     rrs = NULL;
+    geosqlRrs = NULL;
 }
 
 /**
@@ -346,7 +393,6 @@ public:
      */
     void declareArguments(const string &suffix) {
         // GeoSQL configuration part
-        declare(suffix, "regex-filter", "Regular expression filter to match against queried domain", ".*");
         declare(suffix, "domain-suffix", "Set the domain suffix for GeoSQL zones without prefixed 'dot' character", "geosql");
 
         // GeoDB DB Connection part
@@ -364,9 +410,10 @@ public:
         declare(suffix, "pdns-password", "The PowerDNS Database password", "pdns");
 
         // SQL Statements
-        declare(suffix, "sql-pdns-lookuptype", "SQL Statement to retrieve RR types such as A,CNAME,TXT or MX records", "select replace(name, '.{{REGION}}.{{DOMAIN-SUFFIX}}','') as name, type , replace(content,'.{{REGION}}.{{DOMAIN-SUFFIX}}','') as content, ttl, prio from records where name='{{QDOMAIN}}.{{REGION}}.{{DOMAIN-SUFFIX}}' and type='{{QTYPE}}' and disabled=0;");       
+        declare(suffix, "sql-pdns-lookuptype", "SQL Statement to retrieve RR types such as A,CNAME,TXT or MX records", "select replace(name, '.{{REGION}}.{{DOMAIN-SUFFIX}}','') as name, type , replace(content,'.{{REGION}}.{{DOMAIN-SUFFIX}}','') as content, ttl, prio from records where name='{{QDOMAIN}}.{{REGION}}.{{DOMAIN-SUFFIX}}' and type='{{QTYPE}}' and disabled=0;");
         declare(suffix, "sql-pdns-lookuptype-any", "SQL Statement to retrieve the ANY RR type requests", "select replace(name, '.{{REGION}}.{{DOMAIN-SUFFIX}}','') as name, type, replace(content,'.{{REGION}}.{{DOMAIN-SUFFIX}}','') as content, ttl, prio from records where name='{{QDOMAIN}}.{{REGION}}.{{DOMAIN-SUFFIX}}' and type != 'SOA' and disabled=0;");
         declare(suffix, "sql-geo-lookup-region", "SQL Statement to lookup the REGION and Country Code by source IP address", "select cc,regionname from lookup where MBRCONTAINS(ip_poly, POINTFROMWKB(POINT(INET_ATON('{{S-IP}}'), 0)));");
+        declare(suffix, "sql-pdns-lookup-geosqlenabled","SQL Statement to lookup domains, which are enabled for geosql.", "select name from records where name like '%geosql';");
     }
 
     /**
