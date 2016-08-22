@@ -27,8 +27,6 @@
 #define SQL_RESP_TYPE_DNSRR         1
 #define SQL_RESP_TYPE_GEOSQLED      2
 
-
-#include <opendbx/api>
 #include <pdns/utility.hh>
 #include <pdns/dnsbackend.hh>
 #include <pdns/dns.hh>
@@ -36,6 +34,7 @@
 #include <pdns/logger.hh>
 #include <boost/regex.hpp>
 #include <boost/any.hpp>
+#include <modules/gmysqlbackend/smysql.hh>
 
 using std::string;
 
@@ -58,11 +57,11 @@ private:
 
     bool getRegionForIP(ComboAddress &ip, sqlregion &returned_countryID);
     bool getGeoDnsRecords(const QType &type, const string &qdomain, const sqlregion &region);
-    bool getSqlData(OpenDBX::Conn *&conn, string &sqlStatement, std::vector<boost::any> &sqlResponseData, int sqlResponseType);
+    bool getSqlData(SSqlStatement *sqlStatement, std::vector<boost::any> &sqlResponseData, int sqlResponseType);
     inline void logEntry(Logger::Urgency urgency, string message);
 
-    OpenDBX::Conn *geoip_db;
-    OpenDBX::Conn *pdns_db;
+    SMySQL *geoip_db;
+    SMySQL *pdns_db;
     vector<DNSResourceRecord> *rrs;
 
     std::set<string> *geosqlRrs;
