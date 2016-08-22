@@ -225,7 +225,7 @@ for a in $modules $dynmodules; do
       ;;
     geosql)
       BOOST_REGEX
-      PDNS_CHECK_OPENDBX
+      PDNS_WITH_MYSQL
       ;;
     lua)
       AS_IF([test "x$with_lua" = "xno"],
