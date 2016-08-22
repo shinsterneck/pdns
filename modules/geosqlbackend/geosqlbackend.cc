@@ -46,8 +46,7 @@ GeoSqlBackend::GeoSqlBackend(const string &suffix) {
         // Preload geosql enabled records
         try {
             std::vector<boost::any> sqlResponseData;
-            string sqlstmt = getArg("sql-pdns-lookup-geosqlenabled");
-            bool result = getSqlData(pdns_db, sqlstmt, sqlResponseData, SQL_RESP_TYPE_GEOSQLED);
+            bool result = getSqlData(pdns_db, getArg("sql-pdns-lookup-geosqlenabled") , sqlResponseData, SQL_RESP_TYPE_GEOSQLED);
 
             if (result) {
                 string record;
@@ -58,7 +57,7 @@ GeoSqlBackend::GeoSqlBackend(const string &suffix) {
                 for (unsigned int i = 0; i < sqlResponseData.size(); i++) {
                     record = boost::any_cast<string>(sqlResponseData.at(i));
 
-                    // remove geosql country/region and suffix and store in simple cache vector
+                    // remove geosql country/region and suffix and store in simple cache set
                     boost::smatch matches;
                     if (boost::regex_match(record, matches, re)){
                         geosqlRrs->insert(string(matches[1]));
@@ -146,7 +145,6 @@ bool GeoSqlBackend::get(DNSResourceRecord &rr) {
  * @param p the DNS packet
  */
 bool GeoSqlBackend::getSOA(const DNSName &name, SOAData &soadata, DNSPacket *p) {
-    logEntry(Logger::Debug, "Ignoring SOA request: '" + name.toString());
     return false;
 }
 
@@ -238,7 +236,6 @@ bool GeoSqlBackend::getGeoDnsRecords(const QType &type, const string &qdomain, c
         } catch (std::exception &e) {
             logEntry(Logger::Alert, "Error while parsing SQL response data for DNS Records: " + string(e.what()));
         }
-
     }
 
     return foundRecords;
