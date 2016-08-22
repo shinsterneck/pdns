@@ -1,10 +1,10 @@
-/* 
+/*
  * File: geosqlbackend.h
- * 
+ *
  * Description: This file is part of the GeoSQL backend for PowerDNS
- *  
+ *
  * Copyright (C) Shin Sterneck 2013-2015 (email: shin at sterneck dot asia)
- * 
+ *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
@@ -40,31 +40,31 @@
 using std::string;
 
 class GeoSqlBackend : public DNSBackend {
-    
+
 public:
     GeoSqlBackend(const string &suffix);
     virtual ~GeoSqlBackend();
-    
-    virtual bool getSOA(const DNSName &name, SOAData &soadata, DNSPacket *p=0);    
+
+    virtual bool getSOA(const DNSName &name, SOAData &soadata, DNSPacket *p=0);
     virtual void lookup(const QType &qtype, const DNSName &qdomain, DNSPacket *pkt_p=0, int zoneId=-1);
     virtual bool list(const DNSName &target, int domain_id, bool include_disabled=false);
     virtual bool get(DNSResourceRecord &r);
 
-private:    
+private:
     struct sqlregion {
         string regionname;
         string countrycode;
     };
-    
+
     bool getRegionForIP(ComboAddress &ip, sqlregion &returned_countryID);
     bool getGeoDnsRecords(const QType &type, const string &qdomain, const sqlregion &region);
     bool getSqlData(OpenDBX::Conn *&conn, string &sqlStatement, std::vector<boost::any> &sqlResponseData, int sqlResponseType);
     inline void logEntry(Logger::Urgency urgency, string message);
-    
+
     OpenDBX::Conn *geoip_db;
     OpenDBX::Conn *pdns_db;
     vector<DNSResourceRecord> *rrs;
-    
+
     std::set<string> *geosqlRrs;
 };
 
