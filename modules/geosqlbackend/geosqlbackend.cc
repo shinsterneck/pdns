@@ -415,8 +415,8 @@ class GeoSqlFactory : public BackendFactory
             declare ( suffix, "pdns-innodb-read-committed", "Use InnoDB READ-COMMITTED transaction isolation level for the PowerDNS Database", "true" );
 
             // SQL Statements
-            declare ( suffix, "sql-pdns-lookuptype", "SQL Statement to retrieve RR types such as A,CNAME,TXT or MX records", "select replace(name, '.{{REGION}}.{{DOMAIN-SUFFIX}}','') as name, type , replace(content,'.{{REGION}}.{{DOMAIN-SUFFIX}}','') as content, ttl, prio from records where name='{{QDOMAIN}}.{{REGION}}.{{DOMAIN-SUFFIX}}' and type='{{QTYPE}}' and disabled=0;" );
-            declare ( suffix, "sql-pdns-lookuptype-any", "SQL Statement to retrieve the ANY RR type requests", "select replace(name, '.{{REGION}}.{{DOMAIN-SUFFIX}}','') as name, type, replace(content,'.{{REGION}}.{{DOMAIN-SUFFIX}}','') as content, ttl, prio from records where name='{{QDOMAIN}}.{{REGION}}.{{DOMAIN-SUFFIX}}' and type != 'SOA' and disabled=0;" );
+            declare ( suffix, "sql-pdns-lookuptype", "SQL Statement to retrieve RR types such as A,CNAME,TXT or MX records", "select replace(name, '.{{REGION}}.{{DOMAIN-SUFFIX}}',''), type , replace(content,'.{{REGION}}.{{DOMAIN-SUFFIX}}',''), ttl, prio from records where name='{{QDOMAIN}}.{{REGION}}.{{DOMAIN-SUFFIX}}' and type='{{QTYPE}}' and disabled=0;" );
+            declare ( suffix, "sql-pdns-lookuptype-any", "SQL Statement to retrieve the ANY RR type requests", "select replace(name, '.{{REGION}}.{{DOMAIN-SUFFIX}}',''), type, replace(content,'.{{REGION}}.{{DOMAIN-SUFFIX}}',''), ttl, prio from records where name='{{QDOMAIN}}.{{REGION}}.{{DOMAIN-SUFFIX}}' and type != 'SOA' and disabled=0;" );
             declare ( suffix, "sql-geo-lookup-region", "SQL Statement to lookup the REGION and Country Code by source IP address", "select cc,regionname from lookup where MBRCONTAINS(ip_poly, POINTFROMWKB(POINT(INET_ATON('{{S-IP}}'), 0)));" );
             declare ( suffix, "sql-pdns-lookup-geosqlenabled", "SQL Statement to lookup domains, which are enabled for geosql.", "select distinct name from records where name like '%geosql';" );
         }
