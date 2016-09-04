@@ -35,6 +35,10 @@
 #include <boost/regex.hpp>
 #include <boost/any.hpp>
 #include <modules/gmysqlbackend/smysql.hh>
+#include <boost/asio.hpp>
+#include <boost/date_time/posix_time/posix_time.hpp>
+#include <boost/thread.hpp>
+#include <mutex>
 
 using std::string;
 
@@ -55,16 +59,21 @@ private:
         string countrycode;
     };
 
+    void refresh_cache();
     bool getRegionForIP(ComboAddress &ip, sqlregion &returned_countryID);
     bool getGeoDnsRecords(const QType &type, const string &qdomain, const sqlregion &region);
     bool getSqlData(SSqlStatement *sqlStatement, std::vector<boost::any> &sqlResponseData, int sqlResponseType);
-    inline void logEntry(Logger::Urgency urgency, string message);
 
     SMySQL *geoip_db;
     SMySQL *pdns_db;
     vector<DNSResourceRecord> *rrs;
 
+    // cache related
+    boost::mutex cache_mutex;
+    bool enable_cache;
+    boost::thread *cacheThread;
     std::set<string> *geosqlRrs;
+
 };
 
 #endif	/* GEOSQLBACKEND_H */
