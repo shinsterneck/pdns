@@ -56,13 +56,31 @@ GeoSqlBackend::GeoSqlBackend ( const string &suffix )
                                mustDo ( "pdns-innodb-read-committed" ),
                                getArgAsNum ( "pdns-timeout" ) );
 
-        // Preload geosql enabled records
+        enable_cache = true;
+
+        cacheThread = new boost::thread( &GeoSqlBackend::refresh_cache, this );
+
+    } catch ( SSqlException &e ) {
+        L << Logger::Debug << "geosql " << "DB Connection failed: " << e.txtReason() << endl;
+    }
+}
+
+void GeoSqlBackend::refresh_cache ()
+{
+
+    while ( enable_cache ) {
         try {
             SSqlStatement::result_t result;
             pdns_db->prepare ( getArg ( "sql-pdns-lookup-geosqlenabled" ), 0 )
             ->execute()
             ->getResult ( result );
 
+            cache_mutex.lock();
+
+            // clear cache
+            geosqlRrs->clear();
+
+            // re-populate cache
             if ( !result.empty() ) {
                 boost::regex re ( "^(.*)\\..*\\." + getArg ( "domain-suffix" ) + "$" );
 
@@ -72,34 +90,25 @@ GeoSqlBackend::GeoSqlBackend ( const string &suffix )
                     boost::smatch matches;
 
                     if ( boost::regex_match ( result[i][0], matches, re ) ) {
-                        geosqlRrs->insert ( string ( matches[1] ) );
+                        geosqlRrs ->insert ( string ( matches[1] ) );
                     }
                 }
+
             }
 
-            L << Logger::Alert << "geosql Discovered unique geosql enabled records: " << geosqlRrs->size() << endl;
+            cache_mutex.unlock();
 
-        } catch ( std::exception &e ) {
-            ostringstream oss;
-            oss << e.what();
-            throw PDNSException ( "geosql record preloading error: " + oss.str() );
+            L << Logger::Debug << "geosql " << "Cache updated with " << geosqlRrs->size() << " enabled records" << endl;
+
+        } catch ( SSqlException &e ) {
+            L << Logger::Error << "geosql " << "DB Connection failed: " << e.txtReason() << endl;
         }
 
-    } catch ( SSqlException &e ) {
-        L << Logger::Error << "geosql DB Connection failed: " << e.txtReason() << endl;
+        // wait X seconds before continuing
+        boost::this_thread::sleep ( boost::posix_time::milliseconds ( getArgAsNum ( "geo-cache-ttl" ) * 1000 ) );
     }
-}
 
-/**
- * @brief Used by PowerDNS for zone transfer purposes
- * @param target Stores the DNS name
- * @param domain_id The Domain ID for the domain in question
- * @param include_disabled Specified whether disabled domains should be included in the response
- * @return false (no support for zone transfers in this backend, use main zone for this purpose for now)
- */
-bool GeoSqlBackend::list ( const DNSName &target, int domain_id, bool include_disabled )
-{
-    return false;
+    L << Logger::Error << "geosql " << "Exiting cache refresh thread" << endl;
 }
 
 /**
@@ -113,13 +122,19 @@ void GeoSqlBackend::lookup ( const QType &qtype, const DNSName &qdomain, DNSPack
 {
     ComboAddress remoteIp;
 
+    L << Logger::Debug << "geosql " << "cache entries: " << geosqlRrs->size() << endl;
+
+    cache_mutex.lock();
+
     //check if qdomain is a registered geosql enabled record, if not skip the whole backend
     if ( geosqlRrs->find ( qdomain.toStringNoDot() ) != geosqlRrs->end() ) {
-        logEntry ( Logger::Debug, "Handling Query Request: '" + string ( qdomain.toStringNoDot() ) + ":" + string ( qtype.getName() ) + "'" );
+        cache_mutex.unlock();
+
+        L << Logger::Debug << "geosql " << "Handling Query Request: '" << qdomain.toStringNoDot() << ":" << qtype.getName() << "'" << endl;
 
         //check for ECS data and use it if found
         if ( pkt_p->hasEDNSSubnet() ) {
-            logEntry ( Logger::Debug, "EDNS0 Client-Subnet Field Found!" );
+            L << Logger::Debug << "geosql " << "EDNS0 Client-Subnet Field Found!" << endl;
             remoteIp = pkt_p->getRealRemote().getNetwork();
 
         } else {
@@ -137,8 +152,10 @@ void GeoSqlBackend::lookup ( const QType &qtype, const DNSName &qdomain, DNSPack
         }
 
     } else {
-        logEntry ( Logger::Debug, "Skipping Query request: '" + qdomain.toStringNoDot() + "' not a geosql enabled record" );
+        L << Logger::Debug << "geosql " << "Skipping Query request: '" << qdomain.toStringNoDot() << "' not a geosql enabled record" << endl;
+        cache_mutex.unlock();
     }
+
 }
 
 /**
@@ -154,17 +171,6 @@ bool GeoSqlBackend::get ( DNSResourceRecord &rr )
         return true;
     }
 
-    return false;
-}
-
-/**
- * @brief Function used by PowerDNS to retrieve the SOA record for a domain. In this backend we do not support SOA records.
- * @param name The DNS domain name
- * @param soadata reference to the SOA data
- * @param p the DNS packet
- */
-bool GeoSqlBackend::getSOA ( const DNSName &name, SOAData &soadata, DNSPacket *p )
-{
     return false;
 }
 
@@ -193,7 +199,7 @@ bool GeoSqlBackend::getRegionForIP ( ComboAddress &ip, sqlregion &returned_regio
         }
 
     } catch ( std::exception &e ) {
-        logEntry ( Logger::Critical, "Error while parsing SQL response data for GeoIP region! " + string ( e.what() ) );
+        L << Logger::Critical << "geosql " << "Error while parsing SQL response data for GeoIP region! " << e.what() << endl;
     }
 
     if ( foundCountry ) {
@@ -206,10 +212,10 @@ bool GeoSqlBackend::getRegionForIP ( ComboAddress &ip, sqlregion &returned_regio
             logentry.append ( "'" );
         }
 
-        logEntry ( Logger::Debug, logentry );
+        L << Logger::Debug << "geosql " << logentry << endl;
 
     } else {
-        logEntry ( Logger::Debug, "No Region Found" );
+        L << Logger::Debug << "geosql " << "No Region Found" << endl;
     }
 
     return foundCountry;
@@ -271,7 +277,7 @@ bool GeoSqlBackend::getGeoDnsRecords ( const QType &type, const string &qdomain,
             }
 
         } catch ( std::exception &e ) {
-            logEntry ( Logger::Alert, "Error while parsing SQL response data for DNS Records: " + string ( e.what() ) );
+            L << Logger::Alert << "geosql " <<"Error while parsing SQL response data for DNS Records: " << e.what() << endl;
         }
     }
 
@@ -291,7 +297,7 @@ bool GeoSqlBackend::getSqlData ( SSqlStatement *sqlStatement, std::vector<boost:
 
     bool dataAvailable = false;
     sqlResponseData.clear();
-    logEntry ( Logger::Debug, "Preparing SQL Statement: " + sqlStatement->getQuery() );
+    L << Logger::Debug << "geosql " << "Preparing SQL Statement: " << sqlStatement->getQuery() << endl;
 
     switch ( sqlResponseType ) {
         case SQL_RESP_TYPE_DNSRR: {
@@ -346,13 +352,26 @@ bool GeoSqlBackend::getSqlData ( SSqlStatement *sqlStatement, std::vector<boost:
 }
 
 /**
- * @brief simple function to handle unified way of logging
- * @param urgency indicate the urgency of this message
- * @param message The text to log
+ * @brief Function used by PowerDNS to retrieve the SOA record for a domain. In this backend we do not support SOA records.
+ * @param name The DNS domain name
+ * @param soadata reference to the SOA data
+ * @param p the DNS packet
  */
-inline void GeoSqlBackend::logEntry ( Logger::Urgency urgency, string message )
+bool GeoSqlBackend::getSOA ( const DNSName &name, SOAData &soadata, DNSPacket *p )
 {
-    L << urgency << "geosql " << message << endl;
+    return false;
+}
+
+/**
+ * @brief Used by PowerDNS for zone transfer purposes
+ * @param target Stores the DNS name
+ * @param domain_id The Domain ID for the domain in question
+ * @param include_disabled Specified whether disabled domains should be included in the response
+ * @return false (no support for zone transfers in this backend, use main zone for this purpose for now)
+ */
+bool GeoSqlBackend::list ( const DNSName &target, int domain_id, bool include_disabled )
+{
+    return false;
 }
 
 /**
@@ -360,6 +379,14 @@ inline void GeoSqlBackend::logEntry ( Logger::Urgency urgency, string message )
  */
 GeoSqlBackend::~GeoSqlBackend()
 {
+    // cleanup cache
+    enable_cache = false;
+    cacheThread->interrupt();
+    cacheThread->join();
+    delete cacheThread;
+    cacheThread = NULL;
+
+    // general cleanup
     delete geoip_db;
     delete pdns_db;
     delete rrs;
@@ -368,6 +395,9 @@ GeoSqlBackend::~GeoSqlBackend()
     pdns_db = NULL;
     rrs = NULL;
     geosqlRrs = NULL;
+
+    L << Logger::Debug << "Destroying Backend geosql" << endl;
+
 }
 
 /**
@@ -391,6 +421,7 @@ class GeoSqlFactory : public BackendFactory
         void declareArguments ( const string &suffix ) {
             // GeoSQL configuration part
             declare ( suffix, "domain-suffix", "Set the domain suffix for GeoSQL zones without prefixed 'dot' character", "geosql" );
+            declare ( suffix, "geo-cache-ttl", "Set how often the geosql enabled records cache should be refreshed, in seconds", "60" );
 
             // GeoDB DB Connection part
             declare ( suffix, "geo-host", "The GeoIP Database server IP/FQDN", "localhost" );
