@@ -105,7 +105,7 @@ void GeoSqlBackend::refresh_cache ()
         }
 
         // wait X seconds before continuing
-        boost::this_thread::sleep ( boost::posix_time::milliseconds ( getArgAsNum ( "geo-cache-ttl" ) * 1000 ) );
+        boost::this_thread::sleep ( boost::posix_time::seconds ( getArgAsNum ( "geo-cache-ttl" ) ) );
     }
 
     L << Logger::Error << "geosql " << "Exiting cache refresh thread" << endl;
@@ -465,8 +465,6 @@ class GeoSqlFactory : public BackendFactory
 /**
  * @class GeoSqlLoader
  * @author Shin Sterneck
- * @date 2013
- * @file geosqlbackend.cpp
  * @brief The GeoSsqlLoader class to help load the backend itself
  */
 class GeoSqlLoader
