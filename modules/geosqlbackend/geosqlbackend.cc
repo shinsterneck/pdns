@@ -58,7 +58,7 @@ GeoSqlBackend::GeoSqlBackend ( const string &suffix )
 
         enable_cache = true;
 
-        cacheThread = new boost::thread( &GeoSqlBackend::refresh_cache, this );
+        cacheThread = new boost::thread ( &GeoSqlBackend::refresh_cache, this );
 
     } catch ( SSqlException &e ) {
         L << Logger::Debug << "geosql " << "DB Connection failed: " << e.txtReason() << endl;
@@ -249,21 +249,16 @@ bool GeoSqlBackend::getGeoDnsRecords ( const QType &type, const string &qdomain,
 
     std::vector<boost::any> sqlResponseData;
 
+    // get country specific records
     if ( !region.countrycode.empty() ) {
-        boost::replace_all ( sqlstmt_region, "{{REGION}}", region.countrycode );
+        boost::replace_all ( sqlstmt_cc, "{{REGION}}", region.countrycode );
+        foundRecords = getSqlData ( pdns_db->prepare ( sqlstmt_cc, 0 ), sqlResponseData, SQL_RESP_TYPE_DNSRR );
+    }
 
-        DNSResourceRecord row;
-
-        if ( getSqlData ( pdns_db->prepare ( sqlstmt_region, 0 ), sqlResponseData, SQL_RESP_TYPE_DNSRR ) ) {
-            foundRecords = true;
-        }
-
-    } else if ( !region.regionname.empty() ) {
-        boost::replace_all ( sqlstmt_cc, "{{REGION}}", region.regionname );
-
-        if ( getSqlData ( pdns_db->prepare ( sqlstmt_cc, 0 ), sqlResponseData, SQL_RESP_TYPE_DNSRR ) ) {
-            foundRecords = true;
-        }
+    // if no country found, get region specific records
+    if ( !foundRecords && !region.regionname.empty() ) {
+        boost::replace_all ( sqlstmt_region, "{{REGION}}", region.regionname );
+        foundRecords = getSqlData ( pdns_db->prepare ( sqlstmt_region, 0 ), sqlResponseData, SQL_RESP_TYPE_DNSRR );
     }
 
     if ( foundRecords ) {
@@ -277,7 +272,7 @@ bool GeoSqlBackend::getGeoDnsRecords ( const QType &type, const string &qdomain,
             }
 
         } catch ( std::exception &e ) {
-            L << Logger::Alert << "geosql " <<"Error while parsing SQL response data for DNS Records: " << e.what() << endl;
+            L << Logger::Alert << "geosql " << "Error while parsing SQL response data for DNS Records: " << e.what() << endl;
         }
     }
 
@@ -307,7 +302,6 @@ bool GeoSqlBackend::getSqlData ( SSqlStatement *sqlStatement, std::vector<boost:
                 sqlStatement->execute()->getResult ( result );
 
                 if ( !result.empty() ) {
-                    dataAvailable = true;
 
                     for ( int i = 0 ; i < result.size(); i++ ) {
                         row.qname = DNSName ( result[i][0] );
@@ -325,8 +319,12 @@ bool GeoSqlBackend::getSqlData ( SSqlStatement *sqlStatement, std::vector<boost:
                         sqlResponseData.push_back ( row );
                     }
 
-                    break;
+                    dataAvailable = true;
+
                 }
+
+                break;
+
             }
 
         case SQL_RESP_TYPE_REGION: {
