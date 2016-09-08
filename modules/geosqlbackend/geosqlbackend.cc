@@ -56,8 +56,9 @@ GeoSqlBackend::GeoSqlBackend ( const string &suffix )
                                mustDo ( "pdns-innodb-read-committed" ),
                                getArgAsNum ( "pdns-timeout" ) );
 
-        enable_cache = true;
+        geosqlenabled_stmt = pdns_db->prepare ( getArg ( "sql-pdns-lookup-geosqlenabled" ), 0 );
 
+        enable_cache = true;
         cacheThread = new boost::thread ( &GeoSqlBackend::refresh_cache, this );
 
     } catch ( SSqlException &e ) {
@@ -67,22 +68,25 @@ GeoSqlBackend::GeoSqlBackend ( const string &suffix )
 
 void GeoSqlBackend::refresh_cache ()
 {
-
     while ( enable_cache ) {
+
+        boost::regex re ( "^(.*)\\..*\\." + getArg ( "domain-suffix" ) + "$" );
+
         try {
-            SSqlStatement::result_t result;
-            pdns_db->prepare ( getArg ( "sql-pdns-lookup-geosqlenabled" ), 0 )
-            ->execute()
-            ->getResult ( result );
 
             cache_mutex.lock();
 
-            // clear cache
-            geosqlRrs->clear();
+            SSqlStatement::result_t result;
+
+            geosqlenabled_stmt->execute()
+            ->getResult ( result )
+            ->reset();
 
             // re-populate cache
             if ( !result.empty() ) {
-                boost::regex re ( "^(.*)\\..*\\." + getArg ( "domain-suffix" ) + "$" );
+
+                // clear cache
+                geosqlRrs->clear();
 
                 // remove geosql country/region and suffix and store in simple cache set
                 // sets will ensure uniquenes
@@ -90,7 +94,7 @@ void GeoSqlBackend::refresh_cache ()
                     boost::smatch matches;
 
                     if ( boost::regex_match ( result[i][0], matches, re ) ) {
-                        geosqlRrs ->insert ( string ( matches[1] ) );
+                        geosqlRrs->insert ( string ( matches[1] ) );
                     }
                 }
 
@@ -108,7 +112,6 @@ void GeoSqlBackend::refresh_cache ()
         boost::this_thread::sleep ( boost::posix_time::seconds ( getArgAsNum ( "geo-cache-ttl" ) ) );
     }
 
-    L << Logger::Error << "geosql " << "Exiting cache refresh thread" << endl;
 }
 
 /**
@@ -121,8 +124,6 @@ void GeoSqlBackend::refresh_cache ()
 void GeoSqlBackend::lookup ( const QType &qtype, const DNSName &qdomain, DNSPacket *pkt_p, int zoneId )
 {
     ComboAddress remoteIp;
-
-    L << Logger::Debug << "geosql " << "cache entries: " << geosqlRrs->size() << endl;
 
     cache_mutex.lock();
 
@@ -146,9 +147,6 @@ void GeoSqlBackend::lookup ( const QType &qtype, const DNSName &qdomain, DNSPack
 
         if ( getRegionForIP ( remoteIp, region ) ) {
             getGeoDnsRecords ( qtype, qdomain.toStringNoDot(), region );
-
-        } else {
-            return;
         }
 
     } else {
@@ -183,20 +181,23 @@ bool GeoSqlBackend::get ( DNSResourceRecord &rr )
 bool GeoSqlBackend::getRegionForIP ( ComboAddress &ip, sqlregion &returned_region )
 {
     bool foundCountry = false;
-    string sqlstmt = getArg ( "sql-geo-lookup-region" );
-    boost::replace_all ( sqlstmt, "{{S-IP}}", ip.toString() );
-    std::vector<boost::any> sqlResponseData;
 
     try {
-        if ( getSqlData ( geoip_db->prepare ( sqlstmt, 0 ), sqlResponseData, SQL_RESP_TYPE_REGION )
-             && !sqlResponseData.empty() ) {
+        string sqlstmt = getArg ( "sql-geo-lookup-region" );
+        boost::replace_all ( sqlstmt, "{{S-IP}}", ip.toString() );
+        std::vector<boost::any> sqlResponseData;
+        SSqlStatement *region_stmt = geoip_db->prepare ( sqlstmt, 0 );
+
+        if ( getSqlData ( region_stmt, sqlResponseData, SQL_RESP_TYPE_REGION ) ) {
             sqlregion region = boost::any_cast<sqlregion> ( sqlResponseData.at ( 0 ) );
             boost::to_lower ( region.regionname );
             boost::to_lower ( region.countrycode );
             returned_region = region;
             foundCountry = true;
-
         }
+
+        delete region_stmt;
+        region_stmt = NULL;
 
     } catch ( std::exception &e ) {
         L << Logger::Critical << "geosql " << "Error while parsing SQL response data for GeoIP region! " << e.what() << endl;
@@ -244,21 +245,23 @@ bool GeoSqlBackend::getGeoDnsRecords ( const QType &type, const string &qdomain,
     boost::replace_all ( sqlstmt, "{{QDOMAIN}}", qdomain );
     boost::replace_all ( sqlstmt, "{{QTYPE}}", type.getName() );
 
-    string sqlstmt_region = sqlstmt;
-    string sqlstmt_cc = sqlstmt;
-
     std::vector<boost::any> sqlResponseData;
 
     // get country specific records
     if ( !region.countrycode.empty() ) {
-        boost::replace_all ( sqlstmt_cc, "{{REGION}}", region.countrycode );
-        foundRecords = getSqlData ( pdns_db->prepare ( sqlstmt_cc, 0 ), sqlResponseData, SQL_RESP_TYPE_DNSRR );
+        SSqlStatement *cc_stmt = pdns_db->prepare ( boost::replace_all_copy ( sqlstmt, "{{REGION}}", region.countrycode ), 0 );
+        foundRecords = getSqlData ( cc_stmt, sqlResponseData, SQL_RESP_TYPE_DNSRR );
+        delete cc_stmt;
+        cc_stmt = NULL;
     }
 
-    // if no country found, get region specific records
+    // if no country records found, get region specific records (last resort)
     if ( !foundRecords && !region.regionname.empty() ) {
-        boost::replace_all ( sqlstmt_region, "{{REGION}}", region.regionname );
-        foundRecords = getSqlData ( pdns_db->prepare ( sqlstmt_region, 0 ), sqlResponseData, SQL_RESP_TYPE_DNSRR );
+        boost::replace_all ( sqlstmt, "{{REGION}}", region.regionname );
+        SSqlStatement *region_stmt = pdns_db->prepare ( sqlstmt, 0 );
+        foundRecords = getSqlData ( region_stmt, sqlResponseData, SQL_RESP_TYPE_DNSRR );
+        delete region_stmt;
+        region_stmt = NULL;
     }
 
     if ( foundRecords ) {
@@ -297,30 +300,41 @@ bool GeoSqlBackend::getSqlData ( SSqlStatement *sqlStatement, std::vector<boost:
     switch ( sqlResponseType ) {
         case SQL_RESP_TYPE_DNSRR: {
 
-                DNSResourceRecord row;
-                SSqlStatement::result_t result;
-                sqlStatement->execute()->getResult ( result );
+                try {
 
-                if ( !result.empty() ) {
+                    DNSResourceRecord row;
+                    SSqlStatement::result_t result;
 
-                    for ( int i = 0 ; i < result.size(); i++ ) {
-                        row.qname = DNSName ( result[i][0] );
-                        row.qtype = string ( result[i][1] );
+                    cache_mutex.lock();
+                    sqlStatement->execute()
+                    ->getResult ( result )
+                    ->reset();
+                    cache_mutex.unlock();
 
-                        if ( row.qtype == QType::MX || row.qtype == QType::SRV ) {
-                            row.content = string ( result[i][4]  + " " + string ( result[i][2] ) );
+                    if ( !result.empty() ) {
 
-                        } else {
-                            row.content = string ( result[i][2] );
+                        for ( int i = 0 ; i < result.size(); i++ ) {
+                            row.qname = DNSName ( result[i][0] );
+                            row.qtype = string ( result[i][1] );
+
+                            if ( row.qtype == QType::MX || row.qtype == QType::SRV ) {
+                                row.content = string ( result[i][4]  + " " + string ( result[i][2] ) );
+
+                            } else {
+                                row.content = string ( result[i][2] );
+                            }
+
+                            row.ttl = pdns_stou ( result[i][3] );
+
+                            sqlResponseData.push_back ( row );
                         }
 
-                        row.ttl = pdns_stou ( result[i][3] );
+                        dataAvailable = true;
 
-                        sqlResponseData.push_back ( row );
                     }
 
-                    dataAvailable = true;
-
+                } catch ( std::exception &e ) {
+                    L << Logger::Debug << "geosql Error while retrieving DNS RR records from the database" << endl;
                 }
 
                 break;
@@ -332,14 +346,25 @@ bool GeoSqlBackend::getSqlData ( SSqlStatement *sqlStatement, std::vector<boost:
                 row.countrycode = "";
                 row.regionname = "";
 
-                SSqlStatement::result_t result;
-                sqlStatement->execute()->getResult ( result );
+                try {
 
-                if ( !result.empty() ) {
-                    dataAvailable = true;
-                    row.countrycode = string ( result[0][0] );
-                    row.regionname = string ( result[0][1] );
-                    sqlResponseData.push_back ( row );
+                    SSqlStatement::result_t result;
+                    cache_mutex.lock();
+                    sqlStatement->execute()
+                    ->getResult ( result )
+                    ->reset();
+                    cache_mutex.unlock();
+
+                    if ( !result.empty() ) {
+                        row.countrycode = string ( result[0][0] );
+                        row.regionname = string ( result[0][1] );
+                        sqlResponseData.push_back ( row );
+
+                        dataAvailable = true;
+                    }
+
+                } catch ( std::exception &e ) {
+                    L << Logger::Debug << "geosql Error while retrieving region records from the database" << endl;
                 }
 
                 break;
@@ -377,25 +402,30 @@ bool GeoSqlBackend::list ( const DNSName &target, int domain_id, bool include_di
  */
 GeoSqlBackend::~GeoSqlBackend()
 {
+    L << Logger::Debug << "Destroying Backend geosql" << endl;
+
     // cleanup cache
-    enable_cache = false;
+    cache_mutex.unlock();
+
     cacheThread->interrupt();
     cacheThread->join();
+
     delete cacheThread;
+    delete geosqlenabled_stmt;
+
     cacheThread = NULL;
+    geosqlenabled_stmt = NULL;
 
     // general cleanup
     delete geoip_db;
     delete pdns_db;
     delete rrs;
     delete geosqlRrs;
+
     geoip_db = NULL;
     pdns_db = NULL;
     rrs = NULL;
     geosqlRrs = NULL;
-
-    L << Logger::Debug << "Destroying Backend geosql" << endl;
-
 }
 
 /**
