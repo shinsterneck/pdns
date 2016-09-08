@@ -71,6 +71,7 @@ private:
     // cache related
     boost::mutex cache_mutex;
     bool enable_cache;
+    SSqlStatement *geosqlenabled_stmt;
     boost::thread *cacheThread;
     std::set<string> *geosqlRrs;
 

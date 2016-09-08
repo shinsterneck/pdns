@@ -137,7 +137,7 @@ public:
     d_paridx++;
     return this;
   }
-  SSqlStatement* bindNull(const string& name) { 
+  SSqlStatement* bindNull(const string& name) {
     prepareStatement();
     if (d_paridx >= d_parnum) {
       releaseStatement();
@@ -181,7 +181,7 @@ public:
     if ((d_fnum = static_cast<int>(mysql_stmt_field_count(d_stmt)))>0) {
       // prepare for result
       d_resnum = mysql_stmt_num_rows(d_stmt);
-      
+
       if (d_resnum>0 && d_res_bind == NULL) {
         MYSQL_RES* meta = mysql_stmt_result_metadata(d_stmt);
         d_fnum = static_cast<int>(mysql_num_fields(meta)); // ensure correct number of fields
@@ -199,9 +199,9 @@ public:
           d_res_bind[i].buffer_length = len;
           d_res_bind[i].buffer_type = MYSQL_TYPE_STRING;
         }
-  
+
         mysql_free_result(meta);
-  
+
         if ((err = mysql_stmt_bind_result(d_stmt, d_res_bind))) {
           string error(mysql_stmt_error(d_stmt));
           releaseStatement();
@@ -270,20 +270,20 @@ public:
       }
     }
 #endif
-    return this; 
+    return this;
   }
 
-  SSqlStatement* getResult(result_t& result) { 
+  SSqlStatement* getResult(result_t& result) {
     result.clear();
     result.reserve(d_resnum);
     row_t row;
 
     while(hasNextRow()) {
       nextRow(row);
-      result.push_back(row); 
+      result.push_back(row);
     }
 
-    return this; 
+    return this;
   }
 
   SSqlStatement* reset() {
@@ -382,7 +382,7 @@ private:
   MYSQL_BIND* d_res_bind;
 
   string d_query;
-  
+
   bool d_prepared;
   bool d_dolog;
   int d_parnum;
