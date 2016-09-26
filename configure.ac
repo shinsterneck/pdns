@@ -181,7 +181,7 @@ for a in $modules $dynmodules; do
     gsqlite3)
       needsqlite3=yes
       ;;
-    ldap)
+    ldap|enum)
       PDNS_CHECK_LDAP
       needldap=yes
       ;;
@@ -207,7 +207,7 @@ for a in $modules $dynmodules; do
       AS_IF([test "x$LUAPC" = "x"],
         AC_MSG_ERROR([Lua backend needs lua but we cannot find it])
       )
-      ;;
+      ;;    
   esac
 done
 
@@ -319,6 +319,7 @@ AC_CONFIG_FILES([
   modules/randombackend/Makefile
   modules/remotebackend/Makefile
   modules/tinydnsbackend/Makefile
+  modules/enumbackend/Makefile
 ])
 AC_OUTPUT
 
