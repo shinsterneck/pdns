@@ -28,13 +28,20 @@ EnumBackend::EnumBackend ( const string &suffix )
     rrs = new vector<DNSResourceRecord>();
 
     ldap = new PowerLDAP ( getArg ( "ldap-servers" ), LDAP_PORT, mustDo ( "ldap-starttls" ) );
-    ldap->setOption( LDAP_OPT_DEREF, LDAP_DEREF_ALWAYS );
+    ldap->setOption ( LDAP_OPT_DEREF, LDAP_DEREF_ALWAYS );
     ldap->bind ( getArg ( "ldap-binddn" ), getArg ( "ldap-password" ), LDAP_AUTH_SIMPLE, getArgAsNum ( "ldap-timeout" ) );
 
 }
 
 void EnumBackend::lookup ( const QType &qtype, const DNSName &qdomain, DNSPacket *pkt_p, int zoneId )
 {
+
+    if ( qtype == QType::NAPTR || qtype == QType::TXT || qtype == QType::ANY ) {
+        L << Logger::Debug << "[enum] " << "Handling Query Request: '" << qdomain.toStringNoDot() << ":" << qtype.getName() << endl;
+    } else {
+        L << Logger::Debug << "[enum] " << "Ignoring Query Request: " << qtype.getName() << endl;
+        return;
+    }
 
     if ( boost::algorithm::ends_with ( qdomain.toStringNoDot(), getArg ( "domain-suffix" ) ) ) {
 
@@ -48,7 +55,6 @@ void EnumBackend::lookup ( const QType &qtype, const DNSName &qdomain, DNSPacket
             remoteIp = pkt_p->getRemote();
         }
 
-        L << Logger::Debug << "[enum] " << "Handling Query Request: '" << qdomain.toStringNoDot() << ":" << qtype.getName() << endl;
 
         // remove domain suffix
         string ds = getArg ( "domain-suffix" );
@@ -58,7 +64,7 @@ void EnumBackend::lookup ( const QType &qtype, const DNSName &qdomain, DNSPacket
 
             std::stringstream ldap_searchstring;
 
-            L << Logger::Debug << "[enum] Starting domain translation" << e164_tn << endl;
+            L << Logger::Debug << "[enum] Starting domain translation: " << e164_tn << endl;
             e164_tn.erase ( e164_tn.size() - ds.size(), ds.size() );
 
             // create ldap search pattern ( this is temporary unindex way, slow! )
@@ -84,20 +90,26 @@ void EnumBackend::lookup ( const QType &qtype, const DNSName &qdomain, DNSPacket
                 if ( ldap_result.count ( "distinguishedName" ) && !ldap_result["distinguishedName"].empty() ) {
                     DNSResourceRecord record;
                     record.qname = qdomain;
-                    record.qtype = QType::NAPTR;
-                    string naptr_proto = getArg("naptr-proto");
-                    record.content = "20 10 \"U\" \"E2U+" + naptr_proto + "\" \"\" " + naptr_proto + ":" + e164_tn + "@" + getArg("naptr-hostname");
                     record.auth = 1;
-                    record.ttl = getArgAsNum("naptr-ttl");
                     record.domain_id = 1;
 
-                    L << Logger::Debug << "[enum] Pushing: " << record.content << endl;
-                    rrs->push_back ( record );
+                    // add NAPTR record
+                    if ( qtype == QType::NAPTR  || qtype == QType::ANY ) {
+                        record.qtype = QType::NAPTR;
+                        string naptr_proto = getArg ( "naptr-proto" );
+                        record.content = "20 10 \"U\" \"E2U+" + naptr_proto + "\" \"\" " + naptr_proto + ":" + ldap_searchstring.str() + "@" + getArg ( "naptr-hostname" );
+                        record.ttl = getArgAsNum ( "naptr-ttl" );
+                        L << Logger::Debug << "[enum] Pushing: " << record.content << endl;
+                        rrs->push_back ( record );
+                    }
 
                     // add a TXT record for convinience purposes
-                    record.qtype = QType::TXT;
-                    record.content = ldap_result["distinguishedName"][0];
-                    rrs->push_back ( record );
+                    if ( qtype == QType::TXT  || qtype == QType::ANY ) {
+                        record.qtype = QType::TXT;
+                        record.content = ldap_result["distinguishedName"][0];
+                        L << Logger::Debug << "[enum] Pushing: " << record.content << endl;
+                        rrs->push_back ( record );
+                    }
                 }
 
             } else {
@@ -127,15 +139,16 @@ bool EnumBackend::getSOA ( const DNSName &name, SOAData &soadata, DNSPacket *p )
         if ( std::equal ( domainSuffix.rbegin(), domainSuffix.rend(), name.toStringNoDot().rbegin() ) ) {
             soadata.domain_id = 1;
             soadata.qname = DNSName ( domainSuffix );
-            soadata.serial = getArgAsNum("soa-serial");
-            soadata.refresh = getArgAsNum("soa-refrelsh");
-            soadata.retry = getArgAsNum("soa-retry");
-            soadata.expire = getArgAsNum("soa-expiry");
-            soadata.ttl = getArgAsNum("soa-ttl");
-            soadata.hostmaster = DNSName ( getArg("soa-hostmaster") );
-            soadata.nameserver = DNSName ( getArg("soa-nameserver") );
+            soadata.serial = getArgAsNum ( "soa-serial" );
+            soadata.refresh = getArgAsNum ( "soa-refrelsh" );
+            soadata.retry = getArgAsNum ( "soa-retry" );
+            soadata.expire = getArgAsNum ( "soa-expiry" );
+            soadata.ttl = getArgAsNum ( "soa-ttl" );
+            soadata.hostmaster = DNSName ( getArg ( "soa-hostmaster" ) );
+            soadata.nameserver = DNSName ( getArg ( "soa-nameserver" ) );
             return true;
         }
+
     } else {
         L << Logger::Debug << "[enum] SOA record generation disabled" << endl;
     }
@@ -197,8 +210,8 @@ class EnumFactory : public BackendFactory
             // NAPTR Configuration
             declare ( suffix, "naptr-ttl" , "Define NAPTR TTL" , "300" );
             declare ( suffix, "naptr-proto" , "Define protocol as h323 or sip" , "h323" );
-            declare ( suffix, "naptr-hostname" , "Define static hostname to use in record content" , "gw1.example.com");
- }
+            declare ( suffix, "naptr-hostname" , "Define static hostname to use in record content" , "gw1.example.com" );
+        }
 
         /**
          * @brief function to make DNSBackend as documented by PowerDNS
