@@ -24,7 +24,7 @@ EnumBackend::EnumBackend ( const string &suffix )
 {
     setArgPrefix ( "enum" + suffix );
 
-    L << Logger::Debug << "Creating new ENUM backend" << endl;
+    L << Logger::Debug << "[enum] Creating new backend" << endl;
     rrs = new vector<DNSResourceRecord>();
 
     ldap = new PowerLDAP ( getArg ( "ldap-servers" ), LDAP_PORT, mustDo ( "ldap-starttls" ) );
@@ -53,11 +53,11 @@ void EnumBackend::lookup ( const QType &qtype, const DNSName &qdomain, DNSPacket
         string ds = getArg ( "domain-suffix" );
         string e164_tn = qdomain.toStringNoDot();
 
-        std::stringstream ldap_searchstring;
-
         if ( e164_tn.size() != ds.size() ) {
 
-            L << Logger::Debug << "Starting transformation of E164: " << e164_tn << endl;
+            std::stringstream ldap_searchstring;
+
+            L << Logger::Debug << "[enum] Starting domain translation" << e164_tn << endl;
             e164_tn.erase ( e164_tn.size() - ds.size(), ds.size() );
 
             // create ldap search pattern ( this is temporary unindex way, slow! )
@@ -71,36 +71,33 @@ void EnumBackend::lookup ( const QType &qtype, const DNSName &qdomain, DNSPacket
             }
                 ) - e164_tn.begin() );
 
-            /* alternative, however this does not remove *;
-            e164_tn.erase (
-                std::remove ( e164_tn.begin(), e164_tn.end(), '.' ), e164_tn.end()
-            );
-             */
+            if ( e164_tn.size() != 0 ) {
+                reverse ( e164_tn.begin(), e164_tn.end() );
+                ldap_searchstring << e164_tn;
+                L << Logger::Debug << "[enum] Translated Number: " << e164_tn << endl;
 
-            reverse ( e164_tn.begin(), e164_tn.end() );
+                ldap_msgid = ldap->search ( getArg ( "ldap-basedn" ), LDAP_SCOPE_SUB, "telephoneNumber=" + ldap_searchstring.str(), ( const char** ) ldap_attr );
+                ldap->getSearchEntry ( ldap_msgid, ldap_result );
 
-            ldap_searchstring << e164_tn;
-            L << Logger::Debug << "[enum] E164 transformation: " << e164_tn << endl;
-        }
+                // check if we found something
+                if ( ldap_result.count ( "distinguishedName" ) && !ldap_result["distinguishedName"].empty() ) {
+                    DNSResourceRecord record;
+                    record.qname = qdomain;
+                    record.qtype = QType::NAPTR;
+                    record.content = "20 10 \"U\" \"E2U+h323\" \"\" h323:" + e164_tn + "@gw1.example.com";
+                    record.auth = 1;
+                    record.ttl = 300;
+                    record.domain_id = 1;
+                    rrs->push_back ( record );
 
-        ldap_msgid = ldap->search ( getArg ( "ldap-basedn" ), LDAP_SCOPE_SUB, "telephoneNumber=" + ldap_searchstring.str(), ( const char** ) ldap_attr );
-        ldap->getSearchEntry ( ldap_msgid, ldap_result );
-
-        // check if we found something
-        if ( ldap_result.count ( "distinguishedName" ) && !ldap_result["distinguishedName"].empty() ) {
-            DNSResourceRecord record;
-            record.qname = qdomain;
-            record.qtype = QType::NAPTR;
-            record.content = "20 10 \"U\" \"E2U+h323\" \"\" h323:" + e164_tn + "@gw1.example.com";
-            record.auth = 1;
-            record.ttl = 300;
-            record.domain_id = 1;
-            rrs->push_back ( record );
-
-            // add a TXT record for convinience purposes
-            record.qtype = QType::TXT;
-            record.content = ldap_result["distinguishedName"][0];
-            rrs->push_back ( record );
+                    // add a TXT record for convinience purposes
+                    record.qtype = QType::TXT;
+                    record.content = ldap_result["distinguishedName"][0];
+                    rrs->push_back ( record );
+                }
+            } else {
+                L << Logger::Debug << "[enum] No number to translate, skipping query" << endl;
+            }
         }
     }
 }
