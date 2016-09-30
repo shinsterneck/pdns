@@ -27,32 +27,82 @@ EnumBackend::EnumBackend ( const string &suffix )
     L << Logger::Debug << "Creating new ENUM backend" << endl;
     rrs = new vector<DNSResourceRecord>();
 
+    ldap = new PowerLDAP ( getArg ( "ldap-servers" ), LDAP_PORT, mustDo ( "ldap-starttls" ) );
+    ldap->bind ( getArg ( "ldap-binddn" ), getArg ( "ldap-password" ), LDAP_AUTH_SIMPLE, getArgAsNum ( "ldap-timeout" ) );
+
 }
 
 void EnumBackend::lookup ( const QType &qtype, const DNSName &qdomain, DNSPacket *pkt_p, int zoneId )
 {
-    ComboAddress remoteIp;
 
-    //check for ECS data and use it if found
-    if ( pkt_p->hasEDNSSubnet() ) {
-        remoteIp = pkt_p->getRealRemote().getNetwork();
+    if ( boost::algorithm::ends_with ( qdomain.toStringNoDot(), getArg ( "domain-suffix" ) ) ) {
 
-    } else {
-        remoteIp = pkt_p->getRemote();
+        ComboAddress remoteIp;
+
+        //check for ECS data and use it if found
+        if ( pkt_p->hasEDNSSubnet() ) {
+            remoteIp = pkt_p->getRealRemote().getNetwork();
+
+        } else {
+            remoteIp = pkt_p->getRemote();
+        }
+
+        L << Logger::Debug << "[enum] " << "Handling Query Request: '" << qdomain.toStringNoDot() << ":" << qtype.getName() << endl;
+
+        // remove domain suffix
+        string ds = getArg ( "domain-suffix" );
+        string e164_tn = qdomain.toStringNoDot();
+
+        std::stringstream ldap_searchstring;
+
+        if ( e164_tn.size() != ds.size() ) {
+
+            L << Logger::Debug << "Starting transformation of E164: " << e164_tn << endl;
+            e164_tn.erase ( e164_tn.size() - ds.size(), ds.size() );
+
+            // create ldap search pattern ( this is temporary unindex way, slow! )
+            ldap_searchstring << "+";
+
+            // remove everything except numbers (pdns also adds *, which for this backend does not make sense)
+            e164_tn.resize (
+                remove_if (
+            e164_tn.begin(), e164_tn.end(), [] ( char x ) {
+                return !isdigit ( x );
+            }
+                ) - e164_tn.begin() );
+
+            /* alternative, however this does not remove *;
+            e164_tn.erase (
+                std::remove ( e164_tn.begin(), e164_tn.end(), '.' ), e164_tn.end()
+            );
+             */
+
+            reverse ( e164_tn.begin(), e164_tn.end() );
+
+            ldap_searchstring << e164_tn;
+            L << Logger::Debug << "[enum] E164 transformation: " << e164_tn << endl;
+        }
+
+        ldap_msgid = ldap->search ( getArg ( "ldap-basedn" ), LDAP_SCOPE_SUB, "telephoneNumber=" + ldap_searchstring.str(), ( const char** ) ldap_attr );
+        ldap->getSearchEntry ( ldap_msgid, ldap_result );
+
+        // check if we found something
+        if ( ldap_result.count ( "distinguishedName" ) && !ldap_result["distinguishedName"].empty() ) {
+            DNSResourceRecord record;
+            record.qname = qdomain;
+            record.qtype = QType::NAPTR;
+            record.content = "20 10 \"U\" \"E2U+h323\" \"\" h323:" + e164_tn + "@gw1.example.com";
+            record.auth = 1;
+            record.ttl = 300;
+            record.domain_id = 1;
+            rrs->push_back ( record );
+
+            // add a TXT record for convinience purposes
+            record.qtype = QType::TXT;
+            record.content = ldap_result["distinguishedName"][0];
+            rrs->push_back ( record );
+        }
     }
-
-    L << Logger::Debug << "enum " << "Handling Query Request: '" << qdomain.toStringNoDot() << ":" << qtype.getName();
-
-    DNSResourceRecord record;
-    record.qname = DNSName ( "1.2.3.4." + getArg ( "domain-suffix" ) );
-    record.qtype = QType::NAPTR;
-    record.content = "20 10 \"U\" \"E2U+h323\" \"\" h323:1.2.3.4@gw1.example.com";
-    record.auth = 1;
-    record.ttl = 100;
-    record.domain_id = 1;
-
-    rrs->push_back ( record );
-
 }
 
 bool EnumBackend::get ( DNSResourceRecord &rr )
@@ -68,15 +118,12 @@ bool EnumBackend::get ( DNSResourceRecord &rr )
 
 bool EnumBackend::getSOA ( const DNSName &name, SOAData &soadata, DNSPacket *p )
 {
-
-    L << Logger::Debug << "enum getSOA Function call : " << name.toStringNoDot() << endl;
-
+    /*
     const string domainSuffix = getArg ( "domain-suffix" );
 
     if ( std::equal ( domainSuffix.rbegin(), domainSuffix.rend(), name.toStringNoDot().rbegin() ) ) {
-        L << Logger::Debug << "Match Found in getSOA function" << endl;
         soadata.domain_id = 1;
-        soadata.qname = DNSName (domainSuffix );
+        soadata.qname = DNSName ( domainSuffix );
         soadata.serial = 2016092701;
         soadata.refresh = 10800;
         soadata.retry = 3600;
@@ -86,13 +133,12 @@ bool EnumBackend::getSOA ( const DNSName &name, SOAData &soadata, DNSPacket *p )
         soadata.nameserver = DNSName ( "enum-ns1.example.com" );
         return true;
     }
-
+    */
     return false;
 }
 
 bool EnumBackend::list ( const DNSName &target, int domain_id, bool include_disabled )
 {
-    L << Logger::Debug << "enum list Function call" << endl;
     return false;
 }
 
@@ -100,6 +146,10 @@ EnumBackend::~EnumBackend()
 {
     delete rrs;
     rrs = NULL;
+
+    delete ldap;
+    ldap = NULL;
+
 }
 
 
@@ -117,9 +167,17 @@ class EnumFactory : public BackendFactory
         void declareArguments ( const string &suffix ) {
             // ENUM Configuration
             declare ( suffix, "domain-suffix", "Set the domain suffix of the ENUM RRs without the 'dot' character", "e164.arpa" );
-            declare ( suffix, "ldap-server", "Set the LDAP server hostname" , "host" );
+
+            // LDAP Configuration
+            declare ( suffix, "ldap-servers", "List of LDAP hosts (separated by spaces)" , "ldap://127.0.0.1:389/" );
+            declare ( suffix, "ldap-starttls" , "Bind to LDAP Server using TLS" , "no" );
             declare ( suffix, "ldap-username", "Set the LDAP username" , "user" );
             declare ( suffix, "ldap-password", "Set the LDAP password" , "pass" );
+            declare ( suffix, "ldap-basedn", "Search root in ldap tree (must be set)", "" );
+            declare ( suffix, "ldap-binddn", "User dn for non anonymous binds", "" );
+            declare ( suffix, "ldap-timeout", "Seconds before connecting to server fails", "5" );
+            declare ( suffix, "ldap-method", "How to search entries (simple, strict or tree)", "simple" );
+
         }
 
         /**
@@ -131,7 +189,6 @@ class EnumFactory : public BackendFactory
             return new EnumBackend ( suffix );
         }
 };
-
 
 /**
  * @class EnumLoader

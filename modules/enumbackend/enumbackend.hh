@@ -31,6 +31,10 @@
 
 using std::string;
 
+static const char* ldap_attr[] = {
+    "distinguishedName"
+};
+
 class EnumBackend : public DNSBackend
 {
 
@@ -44,9 +48,12 @@ class EnumBackend : public DNSBackend
         virtual bool list ( const DNSName &target, int domain_id, bool include_disabled = false );
         virtual bool get ( DNSResourceRecord &r );
 
-    private:
+private:
 
+        PowerLDAP* ldap;
         vector<DNSResourceRecord> *rrs;
+        int ldap_msgid;
+        PowerLDAP::sentry_t ldap_result;
 
 };
 
