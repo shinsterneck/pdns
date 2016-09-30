@@ -28,6 +28,7 @@ EnumBackend::EnumBackend ( const string &suffix )
     rrs = new vector<DNSResourceRecord>();
 
     ldap = new PowerLDAP ( getArg ( "ldap-servers" ), LDAP_PORT, mustDo ( "ldap-starttls" ) );
+    ldap->setOption( LDAP_OPT_DEREF, LDAP_DEREF_ALWAYS );
     ldap->bind ( getArg ( "ldap-binddn" ), getArg ( "ldap-password" ), LDAP_AUTH_SIMPLE, getArgAsNum ( "ldap-timeout" ) );
 
 }
@@ -84,10 +85,13 @@ void EnumBackend::lookup ( const QType &qtype, const DNSName &qdomain, DNSPacket
                     DNSResourceRecord record;
                     record.qname = qdomain;
                     record.qtype = QType::NAPTR;
-                    record.content = "20 10 \"U\" \"E2U+h323\" \"\" h323:" + e164_tn + "@gw1.example.com";
+                    string naptr_proto = getArg("naptr-proto");
+                    record.content = "20 10 \"U\" \"E2U+" + naptr_proto + "\" \"\" " + naptr_proto + ":" + e164_tn + "@" + getArg("naptr-hostname");
                     record.auth = 1;
-                    record.ttl = 300;
+                    record.ttl = getArgAsNum("naptr-ttl");
                     record.domain_id = 1;
+
+                    L << Logger::Debug << "[enum] Pushing: " << record.content << endl;
                     rrs->push_back ( record );
 
                     // add a TXT record for convinience purposes
@@ -95,6 +99,7 @@ void EnumBackend::lookup ( const QType &qtype, const DNSName &qdomain, DNSPacket
                     record.content = ldap_result["distinguishedName"][0];
                     rrs->push_back ( record );
                 }
+
             } else {
                 L << Logger::Debug << "[enum] No number to translate, skipping query" << endl;
             }
@@ -115,22 +120,26 @@ bool EnumBackend::get ( DNSResourceRecord &rr )
 
 bool EnumBackend::getSOA ( const DNSName &name, SOAData &soadata, DNSPacket *p )
 {
-    /*
-    const string domainSuffix = getArg ( "domain-suffix" );
+    if ( mustDo ( "soa-enable" ) ) {
+        L << Logger::Debug << "[enum] Generating SOA record" << endl;
+        const string domainSuffix = getArg ( "domain-suffix" );
 
-    if ( std::equal ( domainSuffix.rbegin(), domainSuffix.rend(), name.toStringNoDot().rbegin() ) ) {
-        soadata.domain_id = 1;
-        soadata.qname = DNSName ( domainSuffix );
-        soadata.serial = 2016092701;
-        soadata.refresh = 10800;
-        soadata.retry = 3600;
-        soadata.expire = 1209600;
-        soadata.ttl = 300;
-        soadata.hostmaster = DNSName ( "postmaster.example.com" );
-        soadata.nameserver = DNSName ( "enum-ns1.example.com" );
-        return true;
+        if ( std::equal ( domainSuffix.rbegin(), domainSuffix.rend(), name.toStringNoDot().rbegin() ) ) {
+            soadata.domain_id = 1;
+            soadata.qname = DNSName ( domainSuffix );
+            soadata.serial = getArgAsNum("soa-serial");
+            soadata.refresh = getArgAsNum("soa-refrelsh");
+            soadata.retry = getArgAsNum("soa-retry");
+            soadata.expire = getArgAsNum("soa-expiry");
+            soadata.ttl = getArgAsNum("soa-ttl");
+            soadata.hostmaster = DNSName ( getArg("soa-hostmaster") );
+            soadata.nameserver = DNSName ( getArg("soa-nameserver") );
+            return true;
+        }
+    } else {
+        L << Logger::Debug << "[enum] SOA record generation disabled" << endl;
     }
-    */
+
     return false;
 }
 
@@ -175,7 +184,21 @@ class EnumFactory : public BackendFactory
             declare ( suffix, "ldap-timeout", "Seconds before connecting to server fails", "5" );
             declare ( suffix, "ldap-method", "How to search entries (simple, strict or tree)", "simple" );
 
-        }
+            // SOA Configuration
+            declare ( suffix, "soa-enable" , "This backend should generate SOA record (yes or no)" , "no" );
+            declare ( suffix, "soa-hostmaster" , "Define SOA hostmaster of this backend/zone" , "hostmaster.example.com" );
+            declare ( suffix, "soa-nameserver" , "Define SOA nameserver of this backend/zone" , "ns1.example.com" );
+            declare ( suffix, "soa-serial" , "Define SOA serial number" , "2016103001" );
+            declare ( suffix, "soa-ttl" , "Define SOA TTL" , "300" );
+            declare ( suffix, "soa-refresh" , "Define SOA refresh time" , "10800" );
+            declare ( suffix, "soa-expiry" , "Define SOA expiry time" , "1209600" );
+            declare ( suffix, "soa-retry" , "Define SOA retry time" , "3600" );
+
+            // NAPTR Configuration
+            declare ( suffix, "naptr-ttl" , "Define NAPTR TTL" , "300" );
+            declare ( suffix, "naptr-proto" , "Define protocol as h323 or sip" , "h323" );
+            declare ( suffix, "naptr-hostname" , "Define static hostname to use in record content" , "gw1.example.com");
+ }
 
         /**
          * @brief function to make DNSBackend as documented by PowerDNS
