@@ -2,6 +2,7 @@
  * File: enumbackend.cc
  *
  * Description: This file is part of the ENUM backend for PowerDNS
+ * The code is partially based on the LDAP Backend of PowerDNS and utilized PowerLDAP
  *
  * Copyright (C) Shin Sterneck 2013-2015 (email: shin at sterneck dot asia)
  *
@@ -27,9 +28,18 @@ EnumBackend::EnumBackend ( const string &suffix )
     L << Logger::Debug << "[enum] Creating new backend" << endl;
     rrs = new vector<DNSResourceRecord>();
 
-    ldap = new PowerLDAP ( getArg ( "ldap-servers" ), LDAP_PORT, mustDo ( "ldap-starttls" ) );
-    ldap->setOption ( LDAP_OPT_DEREF, LDAP_DEREF_ALWAYS );
-    ldap->bind ( getArg ( "ldap-binddn" ), getArg ( "ldap-password" ), LDAP_AUTH_SIMPLE, getArgAsNum ( "ldap-timeout" ) );
+    try {
+        ldap = new PowerLDAP ( getArg ( "ldap-servers" ), LDAP_PORT, mustDo ( "ldap-starttls" ) );
+        ldap->setOption ( LDAP_OPT_DEREF, LDAP_DEREF_ALWAYS );
+        ldap->bind ( getArg ( "ldap-binddn" ), getArg ( "ldap-password" ), LDAP_AUTH_SIMPLE, getArgAsNum ( "ldap-timeout" ) );
+
+    } catch ( std::exception &e ) {
+        L << Logger::Error << "[enum]" << " Error connecting to LDAP Server " << e.what() << endl;
+
+        if ( ldap != NULL ) { delete ldap; };
+
+        throw ( PDNSException ( "Unable to connect to ldap server" ) );
+    }
 
 }
 
@@ -37,8 +47,9 @@ void EnumBackend::lookup ( const QType &qtype, const DNSName &qdomain, DNSPacket
 {
 
     // ignore if * is included in query (those get translated into wildcard in LDAP)
-    if ( qdomain.toStringNoDot().size() > 0 && qdomain.toStringNoDot()[0] != '*' ) {
+    if ( qdomain.toStringNoDot().size() > 0 && qdomain.toStringNoDot() [0] != '*' ) {
         L << Logger::Debug << "[enum] " << "Handling non-wildcard query " << endl;
+
     } else {
         L << Logger::Debug << "[enum] " << "Ignoring wildcard query " << endl;
         return;
@@ -47,6 +58,7 @@ void EnumBackend::lookup ( const QType &qtype, const DNSName &qdomain, DNSPacket
     // only support NAPTR, TXT and ANY queries
     if ( qtype == QType::NAPTR || qtype == QType::TXT || qtype == QType::ANY ) {
         L << Logger::Debug << "[enum] " << "Handling Query Request: " << qdomain.toStringNoDot() << ":" << qtype.getName() << endl;
+
     } else {
         L << Logger::Debug << "[enum] " << "Ignoring Query Request: " << qtype.getName() << endl;
         return;
@@ -92,43 +104,53 @@ void EnumBackend::lookup ( const QType &qtype, const DNSName &qdomain, DNSPacket
                 ldap_searchstring << e164_tn;
                 L << Logger::Debug << "[enum] Translated Number: " << e164_tn << endl;
 
-                ldap_msgid = ldap->search ( getArg ( "ldap-basedn" ), LDAP_SCOPE_SUB, "telephoneNumber=" + ldap_searchstring.str(), ( const char** ) ldap_attr );
-                ldap->getSearchEntry ( ldap_msgid, ldap_result, true );
 
-                // check if we found something
-                if ( ldap_result.count ( "dn" ) && !ldap_result["dn"].empty() ) {
-                    DNSResourceRecord record;
-                    record.qname = qdomain;
-                    record.auth = 1;
-                    record.domain_id = 1;
+                try {
+                    ldap_msgid = ldap->search ( getArg ( "ldap-basedn" ), LDAP_SCOPE_SUB, "telephoneNumber=" + ldap_searchstring.str(), ( const char** ) ldap_attr );
+                    ldap->getSearchEntry ( ldap_msgid, ldap_result, true );
 
-                    // add NAPTR record
-                    if ( qtype == QType::NAPTR  || qtype == QType::ANY ) {
-                        record.qtype = QType::NAPTR;
-                        string naptr_proto = getArg ( "naptr-proto" );
-                        record.content = "20 10 \"U\" \"E2U+" + naptr_proto + "\" \"\" " + naptr_proto + ":" + ldap_searchstring.str() + "@" + getArg ( "naptr-hostname" );
-                        record.ttl = getArgAsNum ( "naptr-ttl" );
-                        L << Logger::Debug << "[enum] Pushing: " << record.content << endl;
-                        rrs->push_back ( record );
-                    }
-
-                    // add a TXT record for convinience purposes
-                    if ( qtype == QType::TXT  || qtype == QType::ANY ) {
-                        record.qtype = QType::TXT;
-                        record.content = ldap_result["distinguishedName"][0];
-                        L << Logger::Debug << "[enum] Pushing: " << record.content << endl;
-                        rrs->push_back ( record );
-                    }
-                    ldap_result.erase("dn");
-
+                } catch ( std::exception &e ) {
+                    L << Logger::Error << "[enum]" << " Error executing LDAP search, server not connected" << e.what() << endl;
+                    throw ( PDNSException ( "Error executing LDAP search, server not connected" ) );
                 }
 
-            } else {
-                L << Logger::Debug << "[enum] No number to translate, skipping query" << endl;
             }
+
+            // check if we found something
+            if ( ldap_result.count ( "dn" ) && !ldap_result["dn"].empty() ) {
+                DNSResourceRecord record;
+                record.qname = qdomain;
+                record.auth = 1;
+                record.domain_id = 1;
+
+                // add NAPTR record
+                if ( qtype == QType::NAPTR  || qtype == QType::ANY ) {
+                    record.qtype = QType::NAPTR;
+                    string naptr_proto = getArg ( "naptr-proto" );
+                    record.content = "20 10 \"U\" \"E2U+" + naptr_proto + "\" \"\" " + naptr_proto + ":" + ldap_searchstring.str() + "@" + getArg ( "naptr-hostname" );
+                    record.ttl = getArgAsNum ( "naptr-ttl" );
+                    L << Logger::Debug << "[enum] Pushing: " << record.content << endl;
+                    rrs->push_back ( record );
+                }
+
+                // add a TXT record for convinience purposes
+                if ( qtype == QType::TXT  || qtype == QType::ANY ) {
+                    record.qtype = QType::TXT;
+                    record.content = ldap_result["distinguishedName"][0];
+                    L << Logger::Debug << "[enum] Pushing: " << record.content << endl;
+                    rrs->push_back ( record );
+                }
+
+                ldap_result.erase ( "dn" );
+
+            }
+
+        } else {
+            L << Logger::Debug << "[enum] No number to translate, skipping query" << endl;
         }
     }
 }
+
 
 bool EnumBackend::get ( DNSResourceRecord &rr )
 {
