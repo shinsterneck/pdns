@@ -36,8 +36,17 @@ EnumBackend::EnumBackend ( const string &suffix )
 void EnumBackend::lookup ( const QType &qtype, const DNSName &qdomain, DNSPacket *pkt_p, int zoneId )
 {
 
+    // ignore if * is included in query (those get translated into wildcard in LDAP)
+    if ( qdomain.toStringNoDot().size() > 0 && qdomain.toStringNoDot()[0] != '*' ) {
+        L << Logger::Debug << "[enum] " << "Handling non-wildcard query " << endl;
+    } else {
+        L << Logger::Debug << "[enum] " << "Ignoring wildcard query " << endl;
+        return;
+    }
+
+    // only support NAPTR, TXT and ANY queries
     if ( qtype == QType::NAPTR || qtype == QType::TXT || qtype == QType::ANY ) {
-        L << Logger::Debug << "[enum] " << "Handling Query Request: '" << qdomain.toStringNoDot() << ":" << qtype.getName() << endl;
+        L << Logger::Debug << "[enum] " << "Handling Query Request: " << qdomain.toStringNoDot() << ":" << qtype.getName() << endl;
     } else {
         L << Logger::Debug << "[enum] " << "Ignoring Query Request: " << qtype.getName() << endl;
         return;
@@ -84,10 +93,10 @@ void EnumBackend::lookup ( const QType &qtype, const DNSName &qdomain, DNSPacket
                 L << Logger::Debug << "[enum] Translated Number: " << e164_tn << endl;
 
                 ldap_msgid = ldap->search ( getArg ( "ldap-basedn" ), LDAP_SCOPE_SUB, "telephoneNumber=" + ldap_searchstring.str(), ( const char** ) ldap_attr );
-                ldap->getSearchEntry ( ldap_msgid, ldap_result );
+                ldap->getSearchEntry ( ldap_msgid, ldap_result, true );
 
                 // check if we found something
-                if ( ldap_result.count ( "distinguishedName" ) && !ldap_result["distinguishedName"].empty() ) {
+                if ( ldap_result.count ( "dn" ) && !ldap_result["dn"].empty() ) {
                     DNSResourceRecord record;
                     record.qname = qdomain;
                     record.auth = 1;
@@ -110,6 +119,8 @@ void EnumBackend::lookup ( const QType &qtype, const DNSName &qdomain, DNSPacket
                         L << Logger::Debug << "[enum] Pushing: " << record.content << endl;
                         rrs->push_back ( record );
                     }
+                    ldap_result.erase("dn");
+
                 }
 
             } else {
