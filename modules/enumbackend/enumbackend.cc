@@ -88,7 +88,7 @@ void EnumBackend::lookup ( const QType &qtype, const DNSName &qdomain, DNSPacket
             L << Logger::Debug << "[enum] Starting domain translation: " << e164_tn << endl;
             e164_tn.erase ( e164_tn.size() - ds.size(), ds.size() );
 
-            // create ldap search pattern ( this is temporary unindex way, slow! )
+            // create ldap search pattern with prefix
             ldap_searchstring << "+";
 
             // remove everything except numbers (pdns also adds *, which for this backend does not make sense)
@@ -106,7 +106,7 @@ void EnumBackend::lookup ( const QType &qtype, const DNSName &qdomain, DNSPacket
 
 
                 try {
-                    ldap_msgid = ldap->search ( getArg ( "ldap-basedn" ), LDAP_SCOPE_SUB, "telephoneNumber=" + ldap_searchstring.str(), ( const char** ) ldap_attr );
+                    ldap_msgid = ldap->search ( getArg ( "ldap-basedn" ), LDAP_SCOPE_SUB, "(&(objectCategory=person)(objectClass=user)(msRTCSIP-line=tel:" + ldap_searchstring.str() + ";ext=*))", ( const char** ) ldap_attr );
                     ldap->getSearchEntry ( ldap_msgid, ldap_result, true );
 
                 } catch ( std::exception &e ) {
@@ -229,6 +229,7 @@ class EnumFactory : public BackendFactory
             declare ( suffix, "ldap-binddn", "User dn for non anonymous binds", "" );
             declare ( suffix, "ldap-timeout", "Seconds before connecting to server fails", "5" );
             declare ( suffix, "ldap-method", "How to search entries (simple, strict or tree)", "simple" );
+            declare ( suffix, "ldap-attributes", "list of attributes we want to check against (seperated by space)" ,"");
 
             // SOA Configuration
             declare ( suffix, "soa-enable" , "This backend should generate SOA record (yes or no)" , "no" );
@@ -244,6 +245,7 @@ class EnumFactory : public BackendFactory
             declare ( suffix, "naptr-ttl" , "Define NAPTR TTL" , "300" );
             declare ( suffix, "naptr-proto" , "Define protocol as h323 or sip" , "h323" );
             declare ( suffix, "naptr-hostname" , "Define static hostname to use in record content" , "gw1.example.com" );
+            declare ( suffix, "naptr-mapping-file" , "Define a mapping file", "");
         }
 
         /**
