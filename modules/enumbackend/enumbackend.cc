@@ -109,8 +109,7 @@ void EnumBackend::lookup ( const QType &qtype, const DNSName &qdomain, DNSPacket
                     ldap_msgid = ldap->search ( getArg ( "ldap-basedn" ), LDAP_SCOPE_SUB, "(&(objectCategory=person)(objectClass=user)(msRTCSIP-line=tel:" + ldap_searchstring.str() + ";ext=*))", ( const char** ) ldap_attr );
                     ldap->getSearchEntry ( ldap_msgid, ldap_result, true );
 
-                } catch ( std::exception &e ) {
-                    L << Logger::Error << "[enum]" << " Error executing LDAP search, server not connected" << e.what() << endl;
+                } catch ( LDAPException &e ) {
                     throw ( PDNSException ( "Error executing LDAP search, server not connected" ) );
                 }
 
