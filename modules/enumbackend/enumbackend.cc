@@ -76,7 +76,6 @@ void EnumBackend::lookup ( const QType &qtype, const DNSName &qdomain, DNSPacket
             remoteIp = pkt_p->getRemote();
         }
 
-
         // remove domain suffix
         string ds = getArg ( "domain-suffix" );
         string e164_tn = qdomain.toStringNoDot();
@@ -103,7 +102,6 @@ void EnumBackend::lookup ( const QType &qtype, const DNSName &qdomain, DNSPacket
                 reverse ( e164_tn.begin(), e164_tn.end() );
                 ldap_searchstring << e164_tn;
                 L << Logger::Debug << "[enum] Translated Number: " << e164_tn << endl;
-
 
                 try {
                     ldap_msgid = ldap->search ( getArg ( "ldap-basedn" ), LDAP_SCOPE_SUB, "(&(objectCategory=person)(objectClass=user)(msRTCSIP-line=tel:" + ldap_searchstring.str() + ";ext=*))", ( const char** ) ldap_attr );
@@ -228,7 +226,7 @@ class EnumFactory : public BackendFactory
             declare ( suffix, "ldap-binddn", "User dn for non anonymous binds", "" );
             declare ( suffix, "ldap-timeout", "Seconds before connecting to server fails", "5" );
             declare ( suffix, "ldap-method", "How to search entries (simple, strict or tree)", "simple" );
-            declare ( suffix, "ldap-attributes", "list of attributes we want to check against (seperated by space)" ,"");
+            declare ( suffix, "ldap-attributes", "list of attributes we want to check against (seperated by space)" , "" );
 
             // SOA Configuration
             declare ( suffix, "soa-enable" , "This backend should generate SOA record (yes or no)" , "no" );
@@ -244,7 +242,7 @@ class EnumFactory : public BackendFactory
             declare ( suffix, "naptr-ttl" , "Define NAPTR TTL" , "300" );
             declare ( suffix, "naptr-proto" , "Define protocol as h323 or sip" , "h323" );
             declare ( suffix, "naptr-hostname" , "Define static hostname to use in record content" , "gw1.example.com" );
-            declare ( suffix, "naptr-mapping-file" , "Define a mapping file", "");
+            declare ( suffix, "naptr-mapping-file" , "Define a mapping file", "" );
         }
 
         /**

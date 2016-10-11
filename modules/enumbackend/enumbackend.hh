@@ -32,7 +32,8 @@
 using std::string;
 
 static const char* ldap_attr[] = {
-    "distinguishedName"
+    "pager"
+    "telephoneNumber"
 };
 
 class EnumBackend : public DNSBackend
