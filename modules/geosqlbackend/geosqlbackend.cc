@@ -128,7 +128,7 @@ void GeoSqlBackend::refresh_cache ()
  * @param pkt_p The DNS Packet
  * @param zoneId The Zone ID
  */
-void GeoSqlBackend::lookup ( const QType &qtype, const DNSName &qdomain, DNSPacket *pkt_p, int zoneId )
+void GeoSqlBackend::lookup ( const QType &qtype, const DNSName &qdomain, int zoneId=-1, DNSPacket *pkt_p )
 {
     ComboAddress remoteIp;
 
@@ -405,19 +405,7 @@ bool GeoSqlBackend::getSqlData ( SSqlStatement *sqlStatement, std::vector<boost:
  * @param soadata reference to the SOA data
  * @param p the DNS packet
  */
-bool GeoSqlBackend::getSOA ( const DNSName &name, SOAData &soadata, DNSPacket *p )
-{
-    return false;
-}
-
-/**
- * @brief Used by PowerDNS for zone transfer purposes
- * @param target Stores the DNS name
- * @param domain_id The Domain ID for the domain in question
- * @param include_disabled Specified whether disabled domains should be included in the response
- * @return false (no support for zone transfers in this backend, use main zone for this purpose for now)
- */
-bool GeoSqlBackend::list ( const DNSName &target, int domain_id, bool include_disabled )
+bool GeoSqlBackend::getSOA ( const DNSName &name, SOAData &soadata )
 {
     return false;
 }
@@ -473,7 +461,7 @@ class GeoSqlFactory : public BackendFactory
          * @brief declares configuration options
          * @param suffix specified the configuration suffix used by PowerDNS
          */
-        void declareArguments ( const string &suffix ) {
+        void declareArguments ( const string &suffix ) override {
             // GeoSQL configuration part
             declare ( suffix, "domain-suffix", "Set the domain suffix for GeoSQL zones without prefixed 'dot' character", "geosql" );
             declare ( suffix, "geo-cache-ttl", "Set how often the geosql enabled records cache should be refreshed, in seconds", "60" );
@@ -512,7 +500,7 @@ class GeoSqlFactory : public BackendFactory
          * @param suffix specified configuration suffix used by PowerDNS
          * @return GeoSqlBackend object
          */
-        DNSBackend *make ( const string &suffix ) {
+        DNSBackend *make ( const string &suffix ) override{
             return new GeoSqlBackend ( suffix );
         }
 };

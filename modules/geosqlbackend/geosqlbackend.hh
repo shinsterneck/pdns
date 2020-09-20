@@ -49,12 +49,16 @@ class GeoSqlBackend : public DNSBackend {
 
 public:
     GeoSqlBackend(const string &suffix);
-    virtual ~GeoSqlBackend();
+    ~GeoSqlBackend();
 
-    virtual bool getSOA(const DNSName &name, SOAData &soadata, DNSPacket *p=0);
-    virtual void lookup(const QType &qtype, const DNSName &qdomain, DNSPacket *pkt_p=0, int zoneId=-1);
-    virtual bool list(const DNSName &target, int domain_id, bool include_disabled=false);
-    virtual bool get(DNSResourceRecord &r);
+    bool getSOA(const DNSName &name, SOAData &soadata) override;
+    void lookup(const QType &qtype, const DNSName &qdomain, int zoneId, DNSPacket *pkt_p=nullptr) override;
+    bool get(DNSResourceRecord &) override;    
+
+    bool list(const DNSName &target, int domain_id, bool include_disabled=false) override 
+    {
+        return false;
+    }
 
 private:
     struct sqlregion {
